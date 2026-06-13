@@ -11,7 +11,7 @@ fn main() {
         ))
         .plugin(tauri_plugin_dialog::init())
         .setup(|_app| {
-            let alias = whoami::fallible::hostname().unwrap_or_else(|_| "QuickShare".to_string());
+            let alias = quickshare_core::alias::generate_random_alias("en");
             let port = DEFAULT_PORT;
 
             // Start the server in the background

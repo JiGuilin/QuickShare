@@ -3082,7 +3082,6 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "whoami",
 ]
 
 [[package]]
@@ -3102,7 +3101,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
- "whoami",
 ]
 
 [[package]]

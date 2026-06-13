@@ -83,7 +83,7 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
     let alias = cli.alias.unwrap_or_else(|| {
-        std::env::var("USER").unwrap_or_else(|_| "QuickShare User".to_string())
+        quickshare_core::alias::generate_random_alias("en")
     });
 
     match cli.command {
@@ -116,16 +116,11 @@ async fn run_server(port: u16, alias: String, output: Option<String>) -> Result<
         println!("  {} {}", "Output:".green(), dir);
     }
 
-    // Start mDNS discovery with proper fingerprint
-    let fingerprint = quickshare_core::crypto::generate_fingerprint();
-    let discovery = DiscoveryService::new(alias.clone(), port, fingerprint)?;
-    discovery.register()?;
-
     println!();
     println!("{}", "Waiting for incoming transfers...".yellow());
     println!("{}", "Press Ctrl+C to stop".dimmed());
 
-    // Start the server
+    // The server handles mDNS discovery and fingerprint internally
     quickshare_server::run_server(port, alias).await?;
 
     Ok(())

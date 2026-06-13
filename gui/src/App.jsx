@@ -27,6 +27,11 @@ import {
 import { useI18n, availableLocales } from "./i18n";
 import { useQuickShare } from "./hooks/useWebSocket";
 
+// Tauri plugins - imported statically, but only used when window.__TAURI__ is available
+import * as tauriDialog from "@tauri-apps/plugin-dialog";
+import * as tauriAutostart from "@tauri-apps/plugin-autostart";
+import * as tauriOs from "@tauri-apps/plugin-os";
+
 const API_BASE = "http://localhost:53318";
 
 function DeviceIcon({ type }) {
@@ -501,9 +506,7 @@ function SettingsTab({ settings, onUpdateSettings }) {
   // Check autostart status on mount
   useEffect(() => {
     if (window.__TAURI__) {
-      import("@tauri-apps/plugin-autostart").then((mod) => {
-        mod.isEnabled().then((enabled) => setStartAtLogin(enabled)).catch(() => {});
-      }).catch(() => {});
+      tauriAutostart.isEnabled().then((enabled) => setStartAtLogin(enabled)).catch(() => {});
     }
   }, []);
 
@@ -528,12 +531,11 @@ function SettingsTab({ settings, onUpdateSettings }) {
   const toggleStartAtLogin = async () => {
     if (!window.__TAURI__) return;
     try {
-      const mod = await import("@tauri-apps/plugin-autostart");
       if (startAtLogin) {
-        await mod.disable();
+        await tauriAutostart.disable();
         setStartAtLogin(false);
       } else {
-        await mod.enable();
+        await tauriAutostart.enable();
         setStartAtLogin(true);
       }
     } catch (err) {
@@ -544,8 +546,7 @@ function SettingsTab({ settings, onUpdateSettings }) {
   const browseDirectory = async () => {
     if (!window.__TAURI__) return;
     try {
-      const { open } = await import("@tauri-apps/plugin-dialog");
-      const selected = await open({
+      const selected = await tauriDialog.open({
         directory: true,
         multiple: false,
         title: t("settings.selectDownloadDir") || "Select Download Directory",
@@ -574,7 +575,7 @@ function SettingsTab({ settings, onUpdateSettings }) {
   const useSystemName = async () => {
     if (window.__TAURI__) {
       try {
-        const hostname = await import("@tauri-apps/plugin-os").then((m) => m.hostname()).catch(() => null);
+        const hostname = tauriOs.hostname();
         if (hostname) {
           setAlias(hostname);
           return;
