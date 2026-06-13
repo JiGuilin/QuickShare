@@ -297,7 +297,13 @@ async fn discover_devices(duration: u64, alias: &str) -> Result<()> {
     // Use a proper fingerprint for self-filtering
     let fingerprint = quickshare_core::crypto::generate_fingerprint();
     let discovery = DiscoveryService::new(alias.to_string(), DEFAULT_PORT, fingerprint)?;
+
+    // Register our service and start browsing
+    discovery.register()?;
     let mut rx = discovery.browse();
+
+    // Send an announcement to trigger other devices to respond
+    discovery.send_announcement()?;
 
     println!("  {} Scanning for {} seconds...\n", "⏳".yellow(), duration);
 

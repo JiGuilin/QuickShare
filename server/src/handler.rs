@@ -398,3 +398,29 @@ pub async fn get_random_alias(
     let alias = quickshare_core::alias::generate_random_alias(locale);
     Json(serde_json::json!({ "alias": alias }))
 }
+
+/// POST /api/scan - Trigger a network scan for devices
+/// Sends multicast announcements to discover other QuickShare devices on the network.
+pub async fn scan_devices(State(state): State<AppState>) -> Result<Json<serde_json::Value>, StatusCode> {
+    info!("Triggering network scan via multicast announcement");
+
+    match state.trigger_scan() {
+        Ok(()) => {
+            // Give devices a moment to respond
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+            // Return currently known devices
+            let peers = state.peers.lock().await;
+            let devices: Vec<DeviceInfo> = peers.values().cloned().collect();
+            Ok(Json(serde_json::json!({
+                "status": "ok",
+                "devices_found": devices.len(),
+                "devices": devices,
+            })))
+        }
+        Err(e) => {
+            warn!("Scan failed: {}", e);
+            Err(StatusCode::SERVICE_UNAVAILABLE)
+        }
+    }
+}

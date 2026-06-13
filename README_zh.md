@@ -10,7 +10,7 @@
 
 - 🚀 **快速** - 局域网直连传输，无需服务器中转
 - 🔒 **安全** - 每次传输都进行 SHA256 文件完整性校验
-- 📡 **自动发现** - 基于 mDNS 的设备发现，零配置
+- 📡 **自动发现** - UDP 多播 + mDNS 双重发现机制，零配置
 - 📱 **跨平台** - macOS (Apple Silicon + Intel)、Windows、Linux
 - 🎯 **简单** - 打开即用，无需注册账号
 - 🛠 **CLI + GUI** - 命令行界面和图形界面双模式
@@ -20,6 +20,7 @@
 - 💾 **设置持久化** - 您的偏好设置在重启后保留
 - 🎲 **随机别名** - 自动生成有趣的设备名，如「可爱的芒果」（灵感来自 LocalSend）
 - 🔄 **开机自启** - 可选开机自动启动
+- 🔍 **网络扫描** - 一键触发设备发现
 
 ## 🏗 项目架构
 
@@ -28,7 +29,7 @@ quickshare/
 ├── core/          # 核心协议库 (Rust)
 │   ├── alias/     # 随机别名生成器（形容词 + 水果）
 │   ├── protocol/  # REST API 协议定义
-│   ├── discovery/ # mDNS 设备发现
+│   ├── discovery/ # UDP 多播 + mDNS 设备发现
 │   ├── transfer/  # 文件传输逻辑（含 SHA256 校验）
 │   └── crypto/    # SHA256 哈希与指纹生成
 ├── server/        # HTTP + WebSocket 服务器 (Axum)
@@ -104,11 +105,27 @@ QuickShare 使用基于 HTTP 的 REST API 协议，配合 WebSocket 实现实时
 | `/api/cancel` | POST | 取消传输会话 |
 | `/api/settings` | GET/POST | 获取或更新设置（持久化） |
 | `/api/random-alias` | GET | 生成随机设备别名（`?locale=en|zh`） |
+| `/api/scan` | POST | 触发网络扫描（发送多播公告） |
 | `/api/ws` | WebSocket | 实时通知、进度、设备发现 |
+
+### 设备发现
+
+QuickShare 使用**双重发现机制**，确保最大兼容性：
+
+1. **UDP 多播**（主要方式）- 向多播组 `224.0.0.167:53318` 发送 JSON 公告，与 LocalSend 的发现协议兼容
+2. **mDNS**（辅助方式）- 注册 `_quickshare._tcp.local.` 服务，适用于支持 Bonjour/Avahi 的网络
+
+设备启动时会：
+1. 绑定 UDP socket 并在所有本地接口加入多播组
+2. 在网络上注册 mDNS 服务
+3. 发送初始多播公告
+4. 监听其他设备的公告并自动回复
+
+在 GUI 中点击**扫描**按钮时，会发送一个多播公告，所有正在监听的 QuickShare 设备都会回复自己的信息。
 
 ### 传输流程
 
-1. **发现**：设备通过 mDNS 互相发现（`_quickshare._tcp.local.`）
+1. **发现**：设备通过 UDP 多播和/或 mDNS 互相发现
 2. **准备**：发送方调用 `/api/prepare-send` 传入文件元数据（含 SHA256）
 3. **确认/拒绝**：接收方通过界面确认或拒绝（或启用自动接收）
 4. **上传**：发送方通过 multipart 上传文件，服务器流式写入磁盘
@@ -141,9 +158,25 @@ QuickShare 使用基于 HTTP 的 REST API 协议，配合 WebSocket 实现实时
   "alias": "可爱的芒果",
   "download_dir": "/Users/john/Downloads/QuickShare",
   "auto_accept": false,
-  "fingerprint": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+  "fingerprint": "a1b2c3d4e5f67890abcdef1234567890"
 }
 ```
+
+## 🔧 常见问题
+
+### 无法发现设备
+
+如果无法看到网络中的其他设备：
+1. 确保所有设备连接在**同一 Wi-Fi/网络**下
+2. 检查**UDP 端口 53318** 是否被防火墙阻止
+3. 尝试点击**扫描**按钮触发多播公告
+4. 在 macOS 上，确保应用已在系统设置中获得**本地网络**权限
+
+### 防火墙设置
+
+QuickShare 需要开放以下端口：
+- **TCP 53318** - HTTP 文件传输服务器
+- **UDP 53318** - 多播设备发现
 
 ## 🤝 参与贡献
 

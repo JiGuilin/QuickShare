@@ -10,7 +10,7 @@ A fast, secure, cross-platform LAN file transfer tool. Send files between device
 
 - 🚀 **Fast** - Direct peer-to-peer transfer over LAN, no server relay
 - 🔒 **Secure** - SHA256 file integrity verification for every transfer
-- 📡 **Auto Discovery** - mDNS-based device discovery, zero configuration
+- 📡 **Auto Discovery** - UDP multicast + mDNS dual discovery, zero configuration
 - 📱 **Cross-Platform** - macOS (Apple Silicon + Intel), Windows, Linux
 - 🎯 **Simple** - Just open and use, no account needed
 - 🛠 **CLI + GUI** - Command line interface and graphical interface
@@ -20,6 +20,7 @@ A fast, secure, cross-platform LAN file transfer tool. Send files between device
 - 💾 **Persistent Settings** - Your preferences survive app restarts
 - 🎲 **Random Alias** - Auto-generated fun device names like "Cute Mango" (inspired by LocalSend)
 - 🔄 **Auto Start** - Option to launch at system startup
+- 🔍 **Network Scan** - Trigger on-demand device discovery with one click
 
 ## 🏗 Architecture
 
@@ -28,7 +29,7 @@ quickshare/
 ├── core/          # Core protocol library (Rust)
 │   ├── alias/     # Random alias generator (adjective + fruit)
 │   ├── protocol/  # REST API protocol definitions
-│   ├── discovery/ # mDNS device discovery
+│   ├── discovery/ # UDP multicast + mDNS device discovery
 │   ├── transfer/  # File transfer logic with SHA256 verification
 │   └── crypto/    # SHA256 hashing & fingerprint generation
 ├── server/        # HTTP + WebSocket server (Axum)
@@ -103,12 +104,28 @@ QuickShare uses a simple REST API protocol over HTTP with WebSocket for real-tim
 | `/api/send` | POST | Upload file data (multipart with streaming) |
 | `/api/cancel` | POST | Cancel a transfer session |
 | `/api/settings` | GET/POST | Get or update settings (persisted) |
-| `/api/random-alias` | GET | Generate a random device alias (`?locale=en\|zh`) |
+| `/api/random-alias` | GET | Generate a random device alias (`?locale=en|zh`) |
+| `/api/scan` | POST | Trigger network scan (sends multicast announcement) |
 | `/api/ws` | WebSocket | Real-time notifications, progress, discovery |
+
+### Device Discovery
+
+QuickShare uses a **dual discovery mechanism** for maximum compatibility:
+
+1. **UDP Multicast** (primary) - Sends JSON announcements to multicast group `224.0.0.167:53318`, compatible with LocalSend's discovery protocol
+2. **mDNS** (supplementary) - Registers `_quickshare._tcp.local.` service for networks that support Bonjour/Avahi
+
+When a device starts, it:
+1. Binds a UDP socket and joins the multicast group on all local interfaces
+2. Registers an mDNS service on the network
+3. Sends an initial multicast announcement
+4. Listens for announcements from other devices and responds automatically
+
+When you click **Scan** in the GUI, a multicast announcement is sent, and all listening QuickShare devices respond with their info.
 
 ### Transfer Flow
 
-1. **Discovery**: Devices find each other via mDNS (`_quickshare._tcp.local.`)
+1. **Discovery**: Devices find each other via UDP multicast and/or mDNS
 2. **Prepare**: Sender calls `/api/prepare-send` with file metadata (including SHA256)
 3. **Accept/Reject**: Receiver confirms or rejects via UI (or auto-accept if enabled)
 4. **Upload**: Sender uploads files via multipart, server streams to disk
@@ -141,9 +158,25 @@ Example `settings.json`:
   "alias": "Cute Mango",
   "download_dir": "/Users/john/Downloads/QuickShare",
   "auto_accept": false,
-  "fingerprint": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+  "fingerprint": "a1b2c3d4e5f67890abcdef1234567890"
 }
 ```
+
+## 🔧 Troubleshooting
+
+### Devices not discovered
+
+If you cannot see other devices on the network:
+1. Make sure all devices are on the **same Wi-Fi/network**
+2. Check that **UDP port 53318** is not blocked by your firewall
+3. Try clicking the **Scan** button to trigger a multicast announcement
+4. On macOS, ensure the app has **Local Network** permission in System Settings
+
+### Firewall settings
+
+QuickShare needs the following ports open:
+- **TCP 53318** - HTTP server for file transfer
+- **UDP 53318** - Multicast discovery
 
 ## 🤝 Contributing
 

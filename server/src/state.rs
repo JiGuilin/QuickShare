@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{Mutex, mpsc};
+use quickshare_core::discovery::DiscoveryService;
 use quickshare_core::protocol::{DeviceInfo, WsMessage};
 use quickshare_core::transfer::TransferSession;
 use tracing::{info, warn, error};
@@ -101,6 +102,7 @@ pub struct AppState {
     pub receive_dir: Arc<Mutex<String>>,
     pub auto_accept: Arc<Mutex<bool>>,
     pub fingerprint: String,
+    pub discovery: Arc<std::sync::Mutex<Option<DiscoveryService>>>,
 }
 
 impl AppState {
@@ -131,6 +133,21 @@ impl AppState {
             receive_dir: Arc::new(Mutex::new(persisted.download_dir)),
             auto_accept: Arc::new(Mutex::new(persisted.auto_accept)),
             fingerprint: persisted.fingerprint,
+            discovery: Arc::new(std::sync::Mutex::new(None)),
+        }
+    }
+
+    pub fn set_discovery(&self, discovery: DiscoveryService) {
+        *self.discovery.lock().unwrap() = Some(discovery);
+    }
+
+    /// Trigger a network scan by sending multicast announcements
+    pub fn trigger_scan(&self) -> Result<(), String> {
+        let guard = self.discovery.lock().unwrap();
+        if let Some(ref disc) = *guard {
+            disc.send_announcement().map_err(|e| e.to_string())
+        } else {
+            Err("Discovery service not available".to_string())
         }
     }
 

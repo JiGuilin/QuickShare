@@ -23,18 +23,18 @@ pub async fn run_server(port: u16, alias: String) -> Result<()> {
     // Get our fingerprint from the persistent settings
     let my_fingerprint = state.fingerprint.clone();
 
-    // mDNS discovery
+    // Create discovery service (UDP multicast + mDNS)
     let discovery = match DiscoveryService::new(alias.clone(), port, my_fingerprint) {
         Ok(d) => {
             if let Err(e) = d.register() {
-                info!("Warning: mDNS registration failed: {}", e);
+                info!("Warning: Discovery registration failed: {}", e);
                 None
             } else {
                 Some(d)
             }
         }
         Err(e) => {
-            info!("Warning: mDNS discovery unavailable: {}", e);
+            info!("Warning: Discovery service unavailable: {}", e);
             None
         }
     };
@@ -45,35 +45,46 @@ pub async fn run_server(port: u16, alias: String) -> Result<()> {
         let state_clone = state.clone();
         tokio::spawn(async move {
             loop {
-                match rx.try_recv() {
-                    Ok(event) => match event {
-                        quickshare_core::discovery::DiscoveryEvent::DeviceFound(device) => {
-                            info!("mDNS: Device found: {} ({})", device.alias, device.ip);
-                            let id = device.id.clone();
-                            state_clone.peers.lock().await.insert(id.clone(), device.clone());
+                match rx.recv().await {
+                    Some(quickshare_core::discovery::DiscoveryEvent::DeviceFound(device)) => {
+                        info!("Discovery: Device found: {} ({})", device.alias, device.ip);
+                        let id = device.id.clone();
+                        state_clone.peers.lock().await.insert(id.clone(), device.clone());
 
-                            // Notify WebSocket clients
-                            let clients = state_clone.ws_clients.lock().await;
-                            for (_, tx) in clients.iter() {
-                                let _ = tx.send(WsMessage::Join { device: device.clone() });
-                            }
+                        // Notify WebSocket clients
+                        let clients = state_clone.ws_clients.lock().await;
+                        for (_, tx) in clients.iter() {
+                            let _ = tx.send(WsMessage::Join { device: device.clone() });
                         }
-                        quickshare_core::discovery::DiscoveryEvent::DeviceLost(id) => {
-                            info!("mDNS: Device lost: {}", id);
-                            state_clone.peers.lock().await.remove(&id);
+                    }
+                    Some(quickshare_core::discovery::DiscoveryEvent::DeviceLost(id)) => {
+                        info!("Discovery: Device lost: {}", id);
+                        state_clone.peers.lock().await.remove(&id);
 
-                            let clients = state_clone.ws_clients.lock().await;
-                            for (_, tx) in clients.iter() {
-                                let _ = tx.send(WsMessage::Leave { device_id: id.clone() });
-                            }
+                        let clients = state_clone.ws_clients.lock().await;
+                        for (_, tx) in clients.iter() {
+                            let _ = tx.send(WsMessage::Leave { device_id: id.clone() });
                         }
-                    },
-                    Err(_) => {
-                        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                    }
+                    None => {
+                        info!("Discovery channel closed");
+                        break;
                     }
                 }
             }
         });
+
+        // Store discovery service for scan API
+        state.set_discovery(disc);
+    }
+
+    // Send initial announcement so other devices know we're here
+    if let Ok(guard) = state.discovery.lock() {
+        if let Some(ref disc) = *guard {
+            if let Err(e) = disc.send_announcement() {
+                info!("Warning: Initial announcement failed: {}", e);
+            }
+        }
     }
 
     let app = Router::new()
@@ -86,6 +97,7 @@ pub async fn run_server(port: u16, alias: String) -> Result<()> {
         .route("/api/cancel", post(handler::cancel_transfer))
         .route("/api/settings", get(handler::get_settings).post(handler::update_settings))
         .route("/api/random-alias", get(handler::get_random_alias))
+        .route("/api/scan", post(handler::scan_devices))
         .route("/api/ws", get(ws::ws_handler))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())

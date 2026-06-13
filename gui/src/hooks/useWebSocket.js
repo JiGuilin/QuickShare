@@ -372,10 +372,28 @@ export function useQuickShare() {
   // ── scan (triggered by user) ────────────────────────────
   const scan = useCallback(async () => {
     try {
+      // Trigger multicast announcement to discover devices on the network
+      const scanResp = await fetch(`${API_BASE}/api/scan`, { method: "POST" });
+      if (scanResp.ok) {
+        const data = await scanResp.json();
+        if (Array.isArray(data.devices)) {
+          setDevices((prev) => {
+            const map = new Map(prev.map((d) => [d.id, d]));
+            for (const d of data.devices) map.set(d.id, d);
+            return Array.from(map.values());
+          });
+        }
+      }
+
+      // Also refresh from the server's known peers list
       const resp = await fetch(`${API_BASE}/api/devices`);
       const list = await resp.json();
       if (Array.isArray(list)) {
-        setDevices(list);
+        setDevices((prev) => {
+          const map = new Map(prev.map((d) => [d.id, d]));
+          for (const d of list) map.set(d.id, d);
+          return Array.from(map.values());
+        });
       }
     } catch (e) {
       console.error("Scan failed:", e);

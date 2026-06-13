@@ -761,7 +761,8 @@ export default function App() {
   const handleScan = useCallback(async () => {
     setScanning(true);
     await scan();
-    setTimeout(() => setScanning(false), 2000);
+    // Give more time for multicast responses to arrive
+    setTimeout(() => setScanning(false), 3000);
   }, [scan]);
 
   return (
