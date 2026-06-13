@@ -82,18 +82,25 @@ async fn main() -> Result<()> {
         .init();
 
     let cli = Cli::parse();
-    let alias = cli.alias.unwrap_or_else(|| {
-        quickshare_core::alias::generate_random_alias("en")
-    });
+    // Only set explicit alias if user provided --alias flag
+    let explicit_alias = cli.alias;
 
     match cli.command {
         Commands::Serve { port, output } => {
-            run_server(port, alias, output).await?;
+            // Pass explicit alias (or empty string to use persisted/default)
+            run_server(port, explicit_alias.unwrap_or_default(), output).await?;
         }
         Commands::Send { files, target, port, timeout } => {
+            // For send, use random alias as sender identity if not specified
+            let alias = explicit_alias.unwrap_or_else(|| {
+                quickshare_core::alias::generate_random_alias("en")
+            });
             send_files(files, &target, port, &alias, timeout).await?;
         }
         Commands::Discover { duration } => {
+            let alias = explicit_alias.unwrap_or_else(|| {
+                quickshare_core::alias::generate_random_alias("en")
+            });
             discover_devices(duration, &alias).await?;
         }
         Commands::Info { target, port } => {

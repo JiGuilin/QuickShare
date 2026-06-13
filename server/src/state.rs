@@ -105,11 +105,13 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(alias: String, port: u16) -> Self {
-        // Load persisted settings
+        // Load persisted settings (alias, fingerprint, etc.)
         let mut persisted = load_settings();
 
-        // Override with provided alias if not default
-        if alias != "QuickShare" && !alias.is_empty() {
+        // Only override persisted alias if a non-empty, non-default alias was provided.
+        // The GUI passes a random alias as default - we prefer the persisted one.
+        // The CLI --alias flag provides an explicit override.
+        if !alias.is_empty() {
             persisted.alias = alias;
         }
 

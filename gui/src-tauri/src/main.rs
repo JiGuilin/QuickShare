@@ -11,10 +11,11 @@ fn main() {
         ))
         .plugin(tauri_plugin_dialog::init())
         .setup(|_app| {
-            let alias = quickshare_core::alias::generate_random_alias("en");
             let port = DEFAULT_PORT;
 
             // Start the server in the background
+            // Pass empty alias so the server uses the persisted one (or generates a new random one on first run)
+            let alias = String::new();
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = run_server(port, alias).await {
                     eprintln!("Server error: {}", e);
