@@ -53,6 +53,8 @@ const en = {
     title: "Settings",
     subtitle: "Configure QuickShare preferences",
     deviceAlias: "Device Alias",
+    generateRandomAlias: "Random Alias",
+    useSystemName: "Use System Name",
     port: "Port",
     portHint: "Port change requires restart",
     downloadDir: "Download Directory",

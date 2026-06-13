@@ -24,7 +24,7 @@ impl Default for PersistentSettings {
             .to_string();
 
         Self {
-            alias: whoami::fallible::hostname().unwrap_or_else(|_| "QuickShare".to_string()),
+            alias: quickshare_core::alias::generate_random_alias("en"),
             download_dir,
             auto_accept: false,
             fingerprint,

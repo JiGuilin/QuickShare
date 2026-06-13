@@ -53,6 +53,8 @@ const zh = {
     title: "设置",
     subtitle: "配置 QuickShare 偏好",
     deviceAlias: "设备别名",
+    generateRandomAlias: "随机别名",
+    useSystemName: "使用系统名称",
     port: "端口",
     portHint: "修改端口需要重启应用",
     downloadDir: "下载目录",

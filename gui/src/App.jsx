@@ -23,6 +23,7 @@ import {
   Clock,
   AlertCircle,
   Folder,
+  Monitor,
 } from "lucide-react";
 import { useI18n, availableLocales } from "./i18n";
 import { useQuickShare } from "./hooks/useWebSocket";
@@ -558,6 +559,35 @@ function SettingsTab({ settings, onUpdateSettings }) {
     }
   };
 
+  const generateRandomAlias = async () => {
+    try {
+      const locale = navigator.language.startsWith("zh") ? "zh" : "en";
+      const resp = await fetch(`${API_BASE}/api/random-alias?locale=${locale}`);
+      const data = await resp.json();
+      if (data.alias) {
+        setAlias(data.alias);
+      }
+    } catch (err) {
+      console.error("Failed to generate random alias:", err);
+    }
+  };
+
+  const useSystemName = async () => {
+    if (window.__TAURI__) {
+      try {
+        const hostname = await import("@tauri-apps/plugin-os").then((m) => m.hostname()).catch(() => null);
+        if (hostname) {
+          setAlias(hostname);
+          return;
+        }
+      } catch (err) {
+        // Fallback
+      }
+    }
+    // Fallback: use browser hostname or default
+    setAlias(navigator.userAgent?.split(" ").pop()?.split("/")[0] || "QuickShare");
+  };
+
   return (
     <div className="animate-fade-in">
       <div className="mb-6">
@@ -575,6 +605,21 @@ function SettingsTab({ settings, onUpdateSettings }) {
               onChange={(e) => setAlias(e.target.value)}
               className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-300"
             />
+            <button
+              onClick={generateRandomAlias}
+              className="px-3 py-2 bg-primary-50 hover:bg-primary-100 text-primary-600 rounded-lg text-sm font-medium transition-colors flex items-center gap-1"
+              title={t("settings.generateRandomAlias") || "Generate Random Alias"}
+            >
+              <Zap size={14} />
+              {t("settings.generateRandomAlias") || "Random"}
+            </button>
+            <button
+              onClick={useSystemName}
+              className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg text-sm font-medium transition-colors"
+              title={t("settings.useSystemName") || "Use System Name"}
+            >
+              <Monitor size={14} />
+            </button>
           </div>
         </div>
 

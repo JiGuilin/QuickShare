@@ -389,3 +389,12 @@ fn get_unique_path(mut path: std::path::PathBuf) -> std::path::PathBuf {
         counter += 1;
     }
 }
+
+/// GET /api/random-alias - Generate a random alias
+pub async fn get_random_alias(
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Json<serde_json::Value> {
+    let locale = params.get("locale").map(|s| s.as_str()).unwrap_or("en");
+    let alias = quickshare_core::alias::generate_random_alias(locale);
+    Json(serde_json::json!({ "alias": alias }))
+}

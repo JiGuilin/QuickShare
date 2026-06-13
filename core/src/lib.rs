@@ -1,3 +1,4 @@
+pub mod alias;
 pub mod discovery;
 pub mod protocol;
 pub mod transfer;
