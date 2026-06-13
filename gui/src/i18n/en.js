@@ -57,6 +57,7 @@ const en = {
     portHint: "Port change requires restart",
     downloadDir: "Download Directory",
     browse: "Browse",
+    selectDownloadDir: "Select Download Directory",
     autoAccept: "Auto-accept files",
     autoAcceptHint: "Accept incoming files automatically without confirmation",
     startAtLogin: "Start at login",

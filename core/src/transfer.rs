@@ -6,7 +6,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt, AsyncSeekExt};
 use uuid::Uuid;
 use tracing::{info, debug};
 
-use crate::protocol::{FileMeta, PrepareSendRequest, PrepareSendResponse};
+use crate::protocol::FileMeta;
 
 /// A file transfer session
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,8 +54,37 @@ pub enum TransferStatus {
 pub struct FileSender;
 
 impl FileSender {
-    /// Prepare files for sending - collect metadata
-    pub fn prepare_files(paths: &[PathBuf]) -> Result<Vec<FileMeta>> {
+    /// Prepare files for sending - collect metadata including SHA256 checksums
+    pub async fn prepare_files(paths: &[PathBuf]) -> Result<Vec<FileMeta>> {
+        let mut files = Vec::new();
+        for path in paths {
+            let meta = std::fs::metadata(path)
+                .with_context(|| format!("Cannot access file: {:?}", path))?;
+            let name = path.file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+            let file_type = path.extension()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+
+            // Compute real SHA256 hash
+            let sha256 = crate::crypto::sha256_file(path).await.ok();
+
+            files.push(FileMeta {
+                id: Uuid::new_v4().to_string(),
+                name,
+                size: meta.len(),
+                file_type,
+                sha256,
+            });
+        }
+        Ok(files)
+    }
+
+    /// Prepare files synchronously (for CLI compatibility - will not compute SHA256)
+    pub fn prepare_files_sync(paths: &[PathBuf]) -> Result<Vec<FileMeta>> {
         let mut files = Vec::new();
         for path in paths {
             let meta = std::fs::metadata(path)
@@ -113,5 +142,24 @@ impl FileReceiver {
             tokio::fs::create_dir_all(path).await?;
         }
         Ok(())
+    }
+
+    /// Verify file integrity by checking SHA256 hash
+    pub async fn verify_file(path: &Path, expected_sha256: &str) -> bool {
+        match crate::crypto::sha256_file(path).await {
+            Ok(actual_hash) => {
+                let valid = actual_hash == expected_sha256;
+                if valid {
+                    info!("✅ File integrity verified: {:?}", path);
+                } else {
+                    debug!("❌ File integrity check failed: {:?} (expected: {}, got: {})", path, expected_sha256, actual_hash);
+                }
+                valid
+            }
+            Err(e) => {
+                debug!("Failed to verify file {:?}: {}", path, e);
+                false
+            }
+        }
     }
 }

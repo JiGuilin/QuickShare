@@ -20,8 +20,8 @@ pub async fn run_server(port: u16, alias: String) -> Result<()> {
     let state = AppState::new(alias.clone(), port);
     let port = if port == 0 { DEFAULT_PORT } else { port };
 
-    // Get our fingerprint to pass to discovery for self-filtering
-    let my_fingerprint = state.get_device_info().await.fingerprint;
+    // Get our fingerprint from the persistent settings
+    let my_fingerprint = state.fingerprint.clone();
 
     // mDNS discovery
     let discovery = match DiscoveryService::new(alias.clone(), port, my_fingerprint) {

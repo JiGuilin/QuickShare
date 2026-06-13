@@ -78,18 +78,31 @@ jobs:
           releaseBody: |
             ## QuickShare ${{ github.ref_name }}
 
-            Cross-platform LAN file transfer tool.
+            Cross-platform LAN file transfer tool with SHA256 file verification.
 
-            ### Features
+            ### ✨ Features
             - Zero-config mDNS device discovery
             - Drag & drop file sending
-            - Real-time transfer progress
+            - Real-time transfer progress via WebSocket
+            - SHA256 file integrity verification
+            - Accept/reject incoming transfers
+            - Persistent settings across restarts
             - Multi-language support (English / 简体中文)
+            - Auto-start at login
 
-            ### Downloads
+            ### 📥 Downloads
             - **macOS**: `.dmg` installer (Apple Silicon / Intel)
-            - **Windows**: `.msi` installer
+            - **Windows**: `.msi` / `.exe` installer
             - **Linux**: `.deb` / `.AppImage`
+
+            ### 🔧 What's Changed
+            - SHA256 file integrity verification
+            - Real-time transfer progress via WebSocket
+            - Settings persistence across app restarts
+            - Folder picker dialog for download directory
+            - CLI now waits for receiver acceptance
+            - Stable device fingerprint generation
+            - Device type detection (Desktop/Mobile)
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}

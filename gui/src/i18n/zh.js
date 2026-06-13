@@ -57,6 +57,7 @@ const zh = {
     portHint: "修改端口需要重启应用",
     downloadDir: "下载目录",
     browse: "浏览",
+    selectDownloadDir: "选择下载目录",
     autoAccept: "自动接收文件",
     autoAcceptHint: "无需确认自动接收传入的文件",
     startAtLogin: "开机自启动",

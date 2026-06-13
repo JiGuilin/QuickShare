@@ -22,6 +22,7 @@ import {
   Upload,
   Clock,
   AlertCircle,
+  Folder,
 } from "lucide-react";
 import { useI18n, availableLocales } from "./i18n";
 import { useQuickShare } from "./hooks/useWebSocket";
@@ -540,6 +541,23 @@ function SettingsTab({ settings, onUpdateSettings }) {
     }
   };
 
+  const browseDirectory = async () => {
+    if (!window.__TAURI__) return;
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: t("settings.selectDownloadDir") || "Select Download Directory",
+      });
+      if (selected) {
+        setDownloadDir(selected);
+      }
+    } catch (err) {
+      console.error("Directory picker failed:", err);
+    }
+  };
+
   return (
     <div className="animate-fade-in">
       <div className="mb-6">
@@ -580,6 +598,15 @@ function SettingsTab({ settings, onUpdateSettings }) {
               onChange={(e) => setDownloadDir(e.target.value)}
               className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-300"
             />
+            {window.__TAURI__ && (
+              <button
+                onClick={browseDirectory}
+                className="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium text-gray-600 transition-colors flex items-center gap-1"
+              >
+                <Folder size={14} />
+                {t("settings.browse") || "Browse"}
+              </button>
+            )}
           </div>
         </div>
 

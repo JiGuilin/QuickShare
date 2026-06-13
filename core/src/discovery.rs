@@ -5,7 +5,7 @@ use std::net::IpAddr;
 use tokio::sync::mpsc;
 use tracing::info;
 
-use crate::protocol::DeviceInfo;
+use crate::protocol::{DeviceInfo, DeviceType};
 use crate::SERVICE_TYPE;
 
 /// Discovery service using mDNS
@@ -34,11 +34,14 @@ impl DiscoveryService {
         let local_ip = local_ip()?;
         let host_name = format!("{}.local.", self.alias.to_lowercase().replace(' ', "-"));
 
+        let device_type_str = DeviceType::detect().as_str().to_string();
+
         let properties: Vec<(String, String)> = vec![
             ("alias".to_string(), self.alias.clone()),
             ("version".to_string(), crate::PROTOCOL_VERSION.to_string()),
             ("fingerprint".to_string(), self.fingerprint.clone()),
             ("os".to_string(), std::env::consts::OS.to_string()),
+            ("device_type".to_string(), device_type_str),
         ];
 
         let service_info = ServiceInfo::new(
@@ -83,6 +86,17 @@ impl DiscoveryService {
                             .map(|s| s.to_string())
                             .unwrap_or_default();
 
+                        // Detect device type from mDNS property
+                        let device_type = info.get_property_val_str("device_type")
+                            .map(|s| s.to_string())
+                            .unwrap_or_default();
+                        let device_type = match device_type.as_str() {
+                            "mobile" => DeviceType::Mobile,
+                            "web" => DeviceType::Web,
+                            "server" => DeviceType::Server,
+                            _ => DeviceType::Desktop,
+                        };
+
                         if let Some(ip) = addresses.iter().next() {
                             let device = DeviceInfo {
                                 id: info.get_fullname().to_string(),
@@ -93,7 +107,7 @@ impl DiscoveryService {
                                     .map(|s| s.to_string())
                                     .unwrap_or_default(),
                                 device_model: String::new(),
-                                device_type: crate::protocol::DeviceType::Desktop,
+                                device_type,
                                 fingerprint: fp,
                                 os,
                             };

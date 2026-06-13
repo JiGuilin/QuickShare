@@ -131,6 +131,7 @@ export function useQuickShare() {
         break;
       }
       case "progress": {
+        // Real-time progress update from server
         const p = msg.progress;
         setTransfers((prev) =>
           prev.map((t) =>
@@ -138,7 +139,7 @@ export function useQuickShare() {
               ? {
                   ...t,
                   bytesTransferred: p.bytes_sent,
-                  totalBytes: p.total_bytes,
+                  totalBytes: p.total_bytes || t.totalBytes,
                   status: "transferring",
                 }
               : t
@@ -178,6 +179,8 @@ export function useQuickShare() {
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         const formData = new FormData();
+        // Include session_id so server can track progress
+        formData.append("session_id", sessionId);
         formData.append("file", file);
 
         const resp = await fetch(`${base}/api/send`, {

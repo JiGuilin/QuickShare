@@ -9,6 +9,7 @@ fn main() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
+        .plugin(tauri_plugin_dialog::init())
         .setup(|_app| {
             let alias = whoami::fallible::hostname().unwrap_or_else(|_| "QuickShare".to_string());
             let port = DEFAULT_PORT;

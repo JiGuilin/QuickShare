@@ -19,31 +19,46 @@ pub struct DeviceInfo {
 
 impl DeviceInfo {
     pub fn new(alias: String, port: u16) -> Self {
+        let fingerprint = crate::crypto::generate_fingerprint();
+        let ip = crate::discovery::get_local_ip()
+            .map(|ip| ip.to_string())
+            .unwrap_or_default();
+
         Self {
             id: Uuid::new_v4().to_string(),
             alias,
-            ip: String::new(),
+            ip,
             port,
             version: PROTOCOL_VERSION.to_string(),
             device_model: get_hostname(),
-            device_type: DeviceType::Desktop,
-            fingerprint: Uuid::new_v4().to_string()[..8].to_string(),
+            device_type: DeviceType::detect(),
+            fingerprint,
+            os: std::env::consts::OS.to_string(),
+        }
+    }
+
+    /// Create DeviceInfo with a specific fingerprint (for loading from config)
+    pub fn with_fingerprint(alias: String, port: u16, fingerprint: String) -> Self {
+        let ip = crate::discovery::get_local_ip()
+            .map(|ip| ip.to_string())
+            .unwrap_or_default();
+
+        Self {
+            id: Uuid::new_v4().to_string(),
+            alias,
+            ip,
+            port,
+            version: PROTOCOL_VERSION.to_string(),
+            device_model: get_hostname(),
+            device_type: DeviceType::detect(),
+            fingerprint,
             os: std::env::consts::OS.to_string(),
         }
     }
 }
 
 fn get_hostname() -> String {
-    let mut buf = [0u8; 256];
-    let result = unsafe {
-        libc::gethostname(buf.as_mut_ptr() as *mut libc::c_char, buf.len())
-    };
-    if result == 0 {
-        let len = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
-        String::from_utf8_lossy(&buf[..len]).to_string()
-    } else {
-        String::new()
-    }
+    whoami::fallible::hostname().unwrap_or_else(|_| "Unknown".to_string())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -53,6 +68,44 @@ pub enum DeviceType {
     Desktop,
     Web,
     Server,
+}
+
+impl DeviceType {
+    /// Detect device type based on the current OS
+    pub fn detect() -> Self {
+        // Check if running on mobile via target arch
+        if cfg!(target_arch = "aarch64") && cfg!(target_os = "ios") {
+            return DeviceType::Mobile;
+        }
+        if cfg!(target_os = "android") {
+            return DeviceType::Mobile;
+        }
+
+        // Desktop platforms
+        if cfg!(target_os = "macos")
+            || cfg!(target_os = "windows")
+            || cfg!(target_os = "linux")
+        {
+            return DeviceType::Desktop;
+        }
+
+        // Web (wasm)
+        if cfg!(target_arch = "wasm32") {
+            return DeviceType::Web;
+        }
+
+        DeviceType::Desktop
+    }
+
+    /// Convert to string for frontend
+    pub fn as_str(&self) -> &str {
+        match self {
+            DeviceType::Mobile => "mobile",
+            DeviceType::Desktop => "desktop",
+            DeviceType::Web => "web",
+            DeviceType::Server => "server",
+        }
+    }
 }
 
 /// API routes

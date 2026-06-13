@@ -4,7 +4,7 @@ use axum::extract::ws::{Message, WebSocket};
 use futures_util::stream::StreamExt;
 use futures_util::SinkExt;
 use tokio::sync::mpsc;
-use tracing::{info, warn, debug, error};
+use tracing::{info, warn, debug};
 
 use quickshare_core::protocol::{DeviceInfo, WsMessage};
 
@@ -44,7 +44,7 @@ async fn handle_socket(state: AppState, socket: WebSocket) {
     }
 
     // Task: Forward messages from channel to WebSocket
-    let client_id_clone = client_id.clone();
+    let _client_id_clone = client_id.clone();
     let mut send_task = tokio::spawn(async move {
         while let Some(msg) = rx.recv().await {
             let serialized = serde_json::to_string(&msg).unwrap();

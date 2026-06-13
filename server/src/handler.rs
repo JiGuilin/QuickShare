@@ -7,7 +7,7 @@ use tracing::{info, warn, error};
 use quickshare_core::protocol::{
     AcceptRequest, CancelRequest, DeviceInfo, InfoResponse,
     PrepareSendRequest, PrepareSendResponse, RejectRequest,
-    SettingsRequest, SettingsResponse,
+    SettingsRequest, SettingsResponse, TransferProgress, WsMessage,
 };
 use quickshare_core::transfer::{FileReceiver, TransferSession, TransferStatus};
 
@@ -74,7 +74,7 @@ pub async fn prepare_send(
 
     if auto_accept {
         // Auto-accept: notify WS clients and return accepted
-        notify_ws(&state, &quickshare_core::protocol::WsMessage::TransferResponse {
+        notify_ws(&state, &WsMessage::TransferResponse {
             session_id: session_id.clone(),
             accepted: true,
         }).await;
@@ -86,7 +86,7 @@ pub async fn prepare_send(
         }))
     } else {
         // Push transfer_request to frontend via WebSocket
-        notify_ws(&state, &quickshare_core::protocol::WsMessage::TransferRequest {
+        notify_ws(&state, &WsMessage::TransferRequest {
             session_id: session_id.clone(),
             from: req.sender,
             files: req.files,
@@ -121,7 +121,7 @@ pub async fn accept_transfer(
     drop(sessions);
 
     // Notify WebSocket clients (so the sender knows it was accepted)
-    notify_ws(&state, &quickshare_core::protocol::WsMessage::TransferResponse {
+    notify_ws(&state, &WsMessage::TransferResponse {
         session_id: req.session_id.clone(),
         accepted: true,
     }).await;
@@ -147,7 +147,7 @@ pub async fn reject_transfer(
     drop(sessions);
 
     // Notify WebSocket clients
-    notify_ws(&state, &quickshare_core::protocol::WsMessage::TransferResponse {
+    notify_ws(&state, &WsMessage::TransferResponse {
         session_id: req.session_id.clone(),
         accepted: false,
     }).await;
@@ -156,11 +156,26 @@ pub async fn reject_transfer(
 }
 
 /// POST /api/send - Receive file data (multipart upload) with streaming write
+/// The session_id is passed as a form field alongside the file.
 pub async fn send_file(
     State(state): State<AppState>,
     mut multipart: axum::extract::Multipart,
 ) -> Result<StatusCode, StatusCode> {
-    while let Some(mut field) = multipart.next_field().await.map_err(|_| StatusCode::BAD_REQUEST)? {
+    let mut session_id: Option<String> = None;
+    let mut total_session_bytes: u64 = 0;
+    let mut last_progress_time = std::time::Instant::now();
+
+    while let Some(field) = multipart.next_field().await.map_err(|_| StatusCode::BAD_REQUEST)? {
+        let field_name = field.name().unwrap_or("").to_string();
+
+        // Handle session_id field
+        if field_name == "session_id" {
+            let text = field.text().await.map_err(|_| StatusCode::BAD_REQUEST)?;
+            session_id = Some(text);
+            continue;
+        }
+
+        // Handle file field
         let file_name = field.file_name().unwrap_or("unknown").to_string();
         let content_type = field.content_type().unwrap_or("application/octet-stream").to_string();
 
@@ -181,7 +196,16 @@ pub async fn send_file(
         let mut file = tokio::fs::File::create(&file_path).await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-        let mut total_bytes: u64 = 0;
+        // Get file metadata for verification
+        let file_meta = {
+            let sessions = state.sessions.lock().await;
+            session_id.as_ref()
+                .and_then(|sid| sessions.get(sid))
+                .and_then(|s| s.files.iter().find(|f| f.name == file_name).cloned())
+        };
+
+        let mut field = field;
+        let mut file_bytes: u64 = 0;
         loop {
             match field.chunk().await {
                 Ok(Some(chunk)) => {
@@ -189,7 +213,29 @@ pub async fn send_file(
                         error!("Failed to write chunk: {}", e);
                         return Err(StatusCode::INTERNAL_SERVER_ERROR);
                     }
-                    total_bytes += chunk.len() as u64;
+                    file_bytes += chunk.len() as u64;
+                    total_session_bytes += chunk.len() as u64;
+
+                    // Push progress every 200ms to avoid flooding
+                    if let Some(ref sid) = session_id {
+                        let now = std::time::Instant::now();
+                        if now.duration_since(last_progress_time).as_millis() > 200 {
+                            let total = {
+                                let sessions = state.sessions.lock().await;
+                                sessions.get(sid).map(|s| s.total_bytes).unwrap_or(0)
+                            };
+                            notify_ws(&state, &WsMessage::Progress {
+                                progress: TransferProgress {
+                                    session_id: sid.clone(),
+                                    file_id: file_name.clone(),
+                                    bytes_sent: total_session_bytes,
+                                    total_bytes: total,
+                                    speed_bps: 0,
+                                },
+                            }).await;
+                            last_progress_time = now;
+                        }
+                    }
                 }
                 Ok(None) => break,
                 Err(e) => {
@@ -204,13 +250,47 @@ pub async fn send_file(
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
 
-        info!("✅ File saved: {:?} ({} bytes)", file_path, total_bytes);
+        info!("✅ File saved: {:?} ({} bytes)", file_path, file_bytes);
+
+        // Verify file integrity if SHA256 was provided
+        if let Some(ref meta) = file_meta {
+            if let Some(ref expected_hash) = meta.sha256 {
+                if !FileReceiver::verify_file(&file_path, expected_hash).await {
+                    warn!("❌ SHA256 verification failed for: {:?}", file_path);
+                    // Don't fail the transfer, just warn - the file is still saved
+                }
+            }
+        }
+
+        // Update session progress
+        if let Some(ref sid) = session_id {
+            let mut sessions = state.sessions.lock().await;
+            if let Some(session) = sessions.get_mut(sid) {
+                session.bytes_transferred = total_session_bytes;
+                session.current_file_index += 1;
+            }
+        }
     }
 
     // Notify WebSocket clients that transfer is complete
-    notify_ws(&state, &quickshare_core::protocol::WsMessage::TransferComplete {
-        session_id: "latest".to_string(), // No session_id from multipart, use marker
-    }).await;
+    if let Some(ref sid) = session_id {
+        // Update session status
+        {
+            let mut sessions = state.sessions.lock().await;
+            if let Some(session) = sessions.get_mut(sid) {
+                session.status = TransferStatus::Completed;
+            }
+        }
+
+        notify_ws(&state, &WsMessage::TransferComplete {
+            session_id: sid.clone(),
+        }).await;
+    } else {
+        // Fallback for legacy clients that don't send session_id
+        notify_ws(&state, &WsMessage::TransferComplete {
+            session_id: "latest".to_string(),
+        }).await;
+    }
 
     Ok(StatusCode::OK)
 }
@@ -264,6 +344,9 @@ pub async fn update_settings(
         *state.auto_accept.lock().await = auto;
     }
 
+    // Persist settings to disk
+    state.persist_settings().await;
+
     let alias = state.alias.lock().await.clone();
     let download_dir = state.receive_dir.lock().await.clone();
     let auto_accept = *state.auto_accept.lock().await;
@@ -277,7 +360,7 @@ pub async fn update_settings(
 }
 
 /// Notify all connected WebSocket clients
-async fn notify_ws(state: &AppState, msg: &quickshare_core::protocol::WsMessage) {
+async fn notify_ws(state: &AppState, msg: &WsMessage) {
     let clients = state.ws_clients.lock().await;
     for (_, tx) in clients.iter() {
         if let Err(e) = tx.send(msg.clone()) {

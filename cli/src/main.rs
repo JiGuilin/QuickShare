@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use colored::*;
 use indicatif::{ProgressBar, ProgressStyle};
-use tracing::{info, error};
+use tracing::warn;
 use std::path::PathBuf;
 
 use quickshare_core::discovery::DiscoveryService;
@@ -49,6 +49,10 @@ enum Commands {
         /// Target device port
         #[arg(short, long, default_value_t = DEFAULT_PORT)]
         port: u16,
+
+        /// Timeout in seconds to wait for receiver acceptance
+        #[arg(short, long, default_value_t = 60)]
+        timeout: u64,
     },
 
     /// Discover devices on the local network
@@ -86,8 +90,8 @@ async fn main() -> Result<()> {
         Commands::Serve { port, output } => {
             run_server(port, alias, output).await?;
         }
-        Commands::Send { files, target, port } => {
-            send_files(files, &target, port, &alias).await?;
+        Commands::Send { files, target, port, timeout } => {
+            send_files(files, &target, port, &alias, timeout).await?;
         }
         Commands::Discover { duration } => {
             discover_devices(duration, &alias).await?;
@@ -112,8 +116,9 @@ async fn run_server(port: u16, alias: String, output: Option<String>) -> Result<
         println!("  {} {}", "Output:".green(), dir);
     }
 
-    // Start mDNS discovery
-    let discovery = DiscoveryService::new(alias.clone(), port, String::new())?;
+    // Start mDNS discovery with proper fingerprint
+    let fingerprint = quickshare_core::crypto::generate_fingerprint();
+    let discovery = DiscoveryService::new(alias.clone(), port, fingerprint)?;
     discovery.register()?;
 
     println!();
@@ -126,19 +131,23 @@ async fn run_server(port: u16, alias: String, output: Option<String>) -> Result<
     Ok(())
 }
 
-async fn send_files(files: Vec<PathBuf>, target: &str, port: u16, alias: &str) -> Result<()> {
+async fn send_files(files: Vec<PathBuf>, target: &str, port: u16, alias: &str, timeout: u64) -> Result<()> {
     println!("{}", "╔══════════════════════════════════════╗".cyan());
     println!("{}", "║     📤 QuickShare Send Mode         ║".cyan());
     println!("{}", "╚══════════════════════════════════════╝".cyan());
     println!();
 
-    // Prepare file metadata
-    let file_metas = FileSender::prepare_files(&files)?;
+    // Prepare file metadata with SHA256
+    println!("  {} Computing file checksums...", "⏳".yellow());
+    let file_metas = FileSender::prepare_files(&files).await?;
     let total_size: u64 = file_metas.iter().map(|f| f.size).sum();
 
     println!("  {} {} file(s) ({})", "Sending:".green(), file_metas.len(), format_size(total_size));
     for meta in &file_metas {
-        println!("    {} {} ({})", "•".dimmed(), meta.name, format_size(meta.size));
+        println!("    {} {} ({}) {}", "•".dimmed(), meta.name, format_size(meta.size),
+            meta.sha256.as_ref().map(|_h| format!("✓ checksum").green().to_string())
+                .unwrap_or_else(|| format!("⚠ no checksum").yellow().to_string())
+        );
     }
     println!();
 
@@ -168,8 +177,23 @@ async fn send_files(files: Vec<PathBuf>, target: &str, port: u16, alias: &str) -
         .json().await?;
 
     if !prepare_resp.accepted {
-        println!("{}", "❌ Transfer rejected by receiver".red());
-        return Ok(());
+        if prepare_resp.session_id.is_empty() {
+            println!("{}", "❌ Transfer rejected by receiver".red());
+            return Ok(());
+        }
+
+        // Receiver needs to accept - wait for confirmation via WebSocket
+        println!("{}", "⏳ Waiting for receiver to accept...".yellow());
+
+        let ws_url = format!("ws://{}:{}/api/ws", target, port);
+        let accepted = wait_for_acceptance(&ws_url, &prepare_resp.session_id, timeout).await?;
+
+        if !accepted {
+            println!("{}", "❌ Transfer rejected by receiver".red());
+            return Ok(());
+        }
+
+        println!("{}", "✅ Transfer accepted by receiver".green());
     }
 
     println!("  {} Session: {}", "✓".green(), prepare_resp.session_id);
@@ -186,6 +210,10 @@ async fn send_files(files: Vec<PathBuf>, target: &str, port: u16, alias: &str) -
 
         let file_path = &files[i];
         let mut form = reqwest::multipart::Form::new();
+
+        // Include session_id in the multipart form
+        form = form.text("session_id", prepare_resp.session_id.clone());
+
         let file_data = tokio::fs::read(file_path).await?;
         let part = reqwest::multipart::Part::bytes(file_data)
             .file_name(file_meta.name.clone())
@@ -211,13 +239,62 @@ async fn send_files(files: Vec<PathBuf>, target: &str, port: u16, alias: &str) -
     Ok(())
 }
 
+/// Wait for transfer acceptance via WebSocket
+async fn wait_for_acceptance(ws_url: &str, session_id: &str, timeout: u64) -> Result<bool> {
+    use tokio_tungstenite::{connect_async, tungstenite::Message};
+    use futures_util::stream::StreamExt;
+
+    let (stream, _) = connect_async(ws_url).await
+        .map_err(|e| anyhow::anyhow!("WebSocket connection failed: {}", e))?;
+    let (_, mut read) = stream.split();
+
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(timeout);
+
+    loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            return Ok(false);
+        }
+
+        match tokio::time::timeout(remaining, read.next()).await {
+            Ok(Some(Ok(msg))) => {
+                if let Message::Text(text) = msg {
+                    if let Ok(ws_msg) = serde_json::from_str::<quickshare_core::protocol::WsMessage>(&text) {
+                        match ws_msg {
+                            quickshare_core::protocol::WsMessage::TransferResponse { session_id: sid, accepted } => {
+                                if sid == session_id {
+                                    return Ok(accepted);
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            Ok(Some(Err(e))) => {
+                warn!("WebSocket error: {}", e);
+                return Ok(false);
+            }
+            Ok(None) => {
+                return Ok(false);
+            }
+            Err(_) => {
+                println!("{}", "⏰ Timed out waiting for acceptance".red());
+                return Ok(false);
+            }
+        }
+    }
+}
+
 async fn discover_devices(duration: u64, alias: &str) -> Result<()> {
     println!("{}", "╔══════════════════════════════════════╗".cyan());
     println!("{}", "║     🔍 Discovering Devices...       ║".cyan());
     println!("{}", "╚══════════════════════════════════════╝".cyan());
     println!();
 
-    let discovery = DiscoveryService::new(alias.to_string(), DEFAULT_PORT, String::new())?;
+    // Use a proper fingerprint for self-filtering
+    let fingerprint = quickshare_core::crypto::generate_fingerprint();
+    let discovery = DiscoveryService::new(alias.to_string(), DEFAULT_PORT, fingerprint)?;
     let mut rx = discovery.browse();
 
     println!("  {} Scanning for {} seconds...\n", "⏳".yellow(), duration);
@@ -229,8 +306,13 @@ async fn discover_devices(duration: u64, alias: &str) -> Result<()> {
         match rx.try_recv() {
             Ok(event) => match event {
                 quickshare_core::discovery::DiscoveryEvent::DeviceFound(device) => {
+                    let icon = match device.device_type {
+                        quickshare_core::protocol::DeviceType::Mobile => "📱",
+                        quickshare_core::protocol::DeviceType::Desktop => "💻",
+                        _ => "🖥️",
+                    };
                     println!("  {} {} ({}:{}) - {} {}",
-                        "📱".green(),
+                        icon.green(),
                         device.alias.bold(),
                         device.ip,
                         device.port,
