@@ -65,6 +65,13 @@ function formatSize(bytes) {
   return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
 }
 
+function formatSpeed(bps) {
+  if (!bps || bps <= 0) return "";
+  if (bps >= 1024 * 1024) return `${(bps / 1024 / 1024).toFixed(1)} MB/s`;
+  if (bps >= 1024) return `${(bps / 1024).toFixed(0)} KB/s`;
+  return `${bps} B/s`;
+}
+
 // ─── Components ──────────────────────────────────────────────
 
 function Sidebar({ activeTab, setActiveTab, connected }) {
@@ -230,9 +237,10 @@ function IncomingTransferCard({ transfer, onAccept, onReject }) {
             ></div>
           </div>
           <div className="flex items-center justify-between mt-2">
-            <span className="text-xs text-gray-400">{progress}%</span>
+            <span className="text-xs text-gray-400">{progress}% · {formatSize(transfer.bytesTransferred)} / {formatSize(transfer.totalBytes)}</span>
             <span className="text-xs text-primary-500">
               {transfer.status === "receiving" ? (t("receive.receiving") || "Receiving...") : (t("receive.transferring") || "Transferring...")}
+              {transfer.speed ? ` · ${formatSpeed(transfer.speed)}` : ""}
             </span>
           </div>
         </>

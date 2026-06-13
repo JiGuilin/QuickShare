@@ -1,6 +1,7 @@
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::Json;
+use serde::Deserialize;
 use tokio::io::AsyncWriteExt;
 use tracing::{info, warn, error};
 
@@ -422,6 +423,174 @@ pub async fn get_random_alias(
     let locale = params.get("locale").map(|s| s.as_str()).unwrap_or("en");
     let alias = quickshare_core::alias::generate_random_alias(locale);
     Json(serde_json::json!({ "alias": alias }))
+}
+
+/// POST /api/upload-chunk - Upload a single chunk of a large file
+/// Receives raw binary data with metadata in query params, writes to a temp file.
+/// When the final chunk of a file is received (is_file_done=true), the file is assembled
+/// and moved to the output directory.
+///
+/// Query params:
+/// - session_id: Transfer session ID
+/// - file_name: Original file name
+/// - chunk_index: 0-based chunk index
+/// - total_chunks: Total number of chunks for this file
+/// - is_file_done: "true" if this is the final chunk of this file (triggers assembly)
+/// - is_session_done: "true" if this is also the final file of the session
+///
+/// Body: raw binary chunk data
+pub async fn upload_chunk(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<UploadChunkParams>,
+    body: axum::body::Bytes,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let session_id = &params.session_id;
+    let file_name = &params.file_name;
+    let chunk_index = params.chunk_index;
+    let total_chunks = params.total_chunks;
+    let is_file_done = params.is_file_done;
+    let is_session_done = params.is_session_done;
+
+    info!(
+        "Upload chunk: session={}, file={}, chunk={}/{}, file_done={}, session_done={}, size={}",
+        session_id, file_name, chunk_index + 1, total_chunks, is_file_done, is_session_done, body.len()
+    );
+
+    // Create temp directory for chunks
+    let temp_dir = std::env::temp_dir().join("quickshare-chunks").join(session_id);
+    if let Err(e) = tokio::fs::create_dir_all(&temp_dir).await {
+        error!("Failed to create temp dir: {}", e);
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    // Write chunk to temp file
+    let chunk_file = temp_dir.join(format!("{}.part.{}", file_name, chunk_index));
+    if let Err(e) = tokio::fs::write(&chunk_file, &body).await {
+        error!("Failed to write chunk: {}", e);
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    // Update session progress
+    let chunk_size = body.len() as u64;
+    let total_session_bytes;
+    let session_total;
+    {
+        let mut sessions = state.sessions.lock().await;
+        if let Some(session) = sessions.get_mut(session_id) {
+            session.bytes_transferred += chunk_size;
+            total_session_bytes = session.bytes_transferred;
+            session_total = session.total_bytes;
+        } else {
+            warn!("Session not found: {}", session_id);
+            total_session_bytes = 0;
+            session_total = 0;
+        }
+    }
+
+    // Push progress update
+    notify_ws(&state, &WsMessage::Progress {
+        progress: TransferProgress {
+            session_id: session_id.clone(),
+            file_id: file_name.clone(),
+            bytes_sent: total_session_bytes,
+            total_bytes: session_total,
+            speed_bps: 0,
+        },
+    }).await;
+
+    // If this is the last chunk of the file, assemble it
+    if is_file_done {
+        let output_dir = state.receive_dir.lock().await.clone();
+        let final_path = get_unique_path(std::path::PathBuf::from(&output_dir).join(file_name));
+
+        // Ensure output directory exists
+        if let Some(parent) = final_path.parent() {
+            if let Err(e) = FileReceiver::ensure_dir(parent).await {
+                error!("Failed to create output dir: {}", e);
+                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+            }
+        }
+
+        // Assemble chunks into final file
+        let mut final_file = match tokio::fs::File::create(&final_path).await {
+            Ok(f) => f,
+            Err(e) => {
+                error!("Failed to create final file: {}", e);
+                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+            }
+        };
+
+        let mut assembled_bytes: u64 = 0;
+        for i in 0..total_chunks {
+            let chunk_path = temp_dir.join(format!("{}.part.{}", file_name, i));
+            match tokio::fs::read(&chunk_path).await {
+                Ok(data) => {
+                    if let Err(e) = final_file.write_all(&data).await {
+                        error!("Failed to write assembled chunk: {}", e);
+                        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+                    }
+                    assembled_bytes += data.len() as u64;
+                }
+                Err(e) => {
+                    error!("Missing chunk {}: {}", i, e);
+                    return Err(StatusCode::INTERNAL_SERVER_ERROR);
+                }
+            }
+        }
+
+        if let Err(e) = final_file.flush().await {
+            error!("Failed to flush final file: {}", e);
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+
+        info!("✅ File assembled: {:?} ({} bytes)", final_path, assembled_bytes);
+
+        // Clean up this file's chunks from temp directory
+        for i in 0..total_chunks {
+            let chunk_path = temp_dir.join(format!("{}.part.{}", file_name, i));
+            let _ = tokio::fs::remove_file(&chunk_path).await;
+        }
+
+        // Update session file index
+        {
+            let mut sessions = state.sessions.lock().await;
+            if let Some(session) = sessions.get_mut(session_id) {
+                session.current_file_index += 1;
+            }
+        }
+
+        // If this is also the last file, mark session complete
+        if is_session_done {
+            // Clean up temp directory entirely
+            let _ = tokio::fs::remove_dir_all(&temp_dir).await;
+
+            let mut sessions = state.sessions.lock().await;
+            if let Some(session) = sessions.get_mut(session_id) {
+                session.status = TransferStatus::Completed;
+            }
+            drop(sessions);
+
+            notify_ws(&state, &WsMessage::TransferComplete {
+                session_id: session_id.clone(),
+            }).await;
+        }
+    }
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "chunk_index": chunk_index,
+        "bytes_received": chunk_size,
+    })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UploadChunkParams {
+    pub session_id: String,
+    pub file_name: String,
+    pub chunk_index: usize,
+    pub total_chunks: usize,
+    pub is_file_done: bool,
+    pub is_session_done: bool,
 }
 
 /// POST /api/scan - Trigger a network scan for devices

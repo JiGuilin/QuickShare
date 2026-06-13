@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 
 const WS_URL = "ws://localhost:53318/api/ws";
 const API_BASE = "http://localhost:53318";
+const CHUNK_SIZE = 4 * 1024 * 1024; // 4MB per chunk
 
 export function useQuickShare() {
   const [devices, setDevices] = useState([]);
@@ -147,7 +148,7 @@ export function useQuickShare() {
     }
   }, []);
 
-  // ── actual upload function ─────────────────────────────
+  // ── actual upload function (chunked for large files) ─────
   const doUpload = useCallback(async (sessionId, device, files, transferId) => {
     const base = `http://${device.ip}:${device.port}`;
 
@@ -160,36 +161,91 @@ export function useQuickShare() {
     );
 
     try {
-      let bytesDone = 0;
+      let totalBytesDone = 0;
+      let lastSpeedTime = Date.now();
+      let lastSpeedBytes = 0;
+
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        const formData = new FormData();
-        // Include session_id so server can track progress
-        formData.append("session_id", sessionId);
-        formData.append("file", file);
 
-        const resp = await fetch(`${base}/api/send`, {
-          method: "POST",
-          body: formData,
-        });
+        // For small files (< CHUNK_SIZE * 2), use the legacy multipart upload
+        if (file.size < CHUNK_SIZE * 2) {
+          const formData = new FormData();
+          formData.append("session_id", sessionId);
+          formData.append("file", file);
 
-        if (resp.ok) {
-          bytesDone += file.size;
+          const resp = await fetch(`${base}/api/send`, {
+            method: "POST",
+            body: formData,
+          });
+
+          if (resp.ok) {
+            totalBytesDone += file.size;
+            setTransfers((prev) =>
+              prev.map((t) =>
+                t.id === transferId
+                  ? { ...t, bytesTransferred: totalBytesDone }
+                  : t
+              )
+            );
+          } else {
+            throw new Error(`Upload failed for ${file.name}`);
+          }
+          continue;
+        }
+
+        // Chunked upload for large files
+        const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+
+        for (let chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++) {
+          const start = chunkIdx * CHUNK_SIZE;
+          const end = Math.min(start + CHUNK_SIZE, file.size);
+          const chunkBlob = file.slice(start, end);
+          const chunkData = await chunkBlob.arrayBuffer();
+
+          const isFileDone = chunkIdx === totalChunks - 1;
+          const isSessionDone = isFileDone && i === files.length - 1;
+
+          const resp = await fetch(
+            `${base}/api/upload-chunk?session_id=${encodeURIComponent(sessionId)}&file_name=${encodeURIComponent(file.name)}&chunk_index=${chunkIdx}&total_chunks=${totalChunks}&is_file_done=${isFileDone}&is_session_done=${isSessionDone}`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/octet-stream",
+              },
+              body: chunkData,
+            }
+          );
+
+          if (!resp.ok) {
+            throw new Error(`Chunk upload failed for ${file.name} chunk ${chunkIdx}`);
+          }
+
+          totalBytesDone += chunkData.byteLength;
+
+          // Calculate speed
+          const now = Date.now();
+          const elapsed = (now - lastSpeedTime) / 1000;
+          let speedBps = 0;
+          if (elapsed >= 0.5) {
+            speedBps = Math.round((totalBytesDone - lastSpeedBytes) / elapsed);
+            lastSpeedTime = now;
+            lastSpeedBytes = totalBytesDone;
+          }
+
           setTransfers((prev) =>
             prev.map((t) =>
               t.id === transferId
-                ? { ...t, bytesTransferred: bytesDone }
+                ? { ...t, bytesTransferred: totalBytesDone, speed: speedBps || t.speed }
                 : t
             )
           );
-        } else {
-          throw new Error(`Upload failed for ${file.name}`);
         }
       }
 
       setTransfers((prev) =>
         prev.map((t) =>
-          t.id === transferId ? { ...t, status: "completed" } : t
+          t.id === transferId ? { ...t, status: "completed", bytesTransferred: t.totalBytes } : t
         )
       );
     } catch (err) {
@@ -284,6 +340,7 @@ export function useQuickShare() {
         bytesTransferred: 0,
         totalBytes: totalSize,
         targetDevice: device,
+        speed: 0,
       },
     ]);
 

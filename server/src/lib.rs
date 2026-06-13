@@ -5,6 +5,7 @@ mod ws;
 use anyhow::Result;
 use axum::Router;
 use axum::routing::{get, post};
+use axum::extract::DefaultBodyLimit;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing::info;
@@ -94,12 +95,15 @@ pub async fn run_server(port: u16, alias: String) -> Result<()> {
         .route("/api/accept", post(handler::accept_transfer))
         .route("/api/reject", post(handler::reject_transfer))
         .route("/api/send", post(handler::send_file))
+        .route("/api/upload-chunk", post(handler::upload_chunk))
         .route("/api/cancel", post(handler::cancel_transfer))
         .route("/api/settings", get(handler::get_settings).post(handler::update_settings))
         .route("/api/random-alias", get(handler::get_random_alias))
         .route("/api/scan", post(handler::scan_devices))
         .route("/api/session-status/{session_id}", get(handler::session_status))
         .route("/api/ws", get(ws::ws_handler))
+        // Remove default 2MB body limit for file uploads
+        .layer(DefaultBodyLimit::max(100 * 1024 * 1024)) // 100MB per request (for multipart)
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state);

@@ -9,18 +9,20 @@ A fast, secure, cross-platform LAN file transfer tool. Send files between device
 ## ✨ Features
 
 - 🚀 **Fast** - Direct peer-to-peer transfer over LAN, no server relay
+- 📦 **Large File Support** - Chunked upload (4MB chunks) for files of any size, no memory overflow
 - 🔒 **Secure** - SHA256 file integrity verification for every transfer
 - 📡 **Auto Discovery** - UDP multicast + mDNS dual discovery, zero configuration
 - 📱 **Cross-Platform** - macOS (Apple Silicon + Intel), Windows, Linux
 - 🎯 **Simple** - Just open and use, no account needed
 - 🛠 **CLI + GUI** - Command line interface and graphical interface
 - 🌐 **Multi-language** - English / 简体中文
-- ⚡ **Real-time Progress** - Live transfer progress via WebSocket
+- ⚡ **Real-time Progress** - Live transfer progress with speed display via WebSocket
 - ✅ **Receive Confirmation** - Accept or reject incoming transfers
 - 💾 **Persistent Settings** - Your preferences survive app restarts
 - 🎲 **Random Alias** - Auto-generated fun device names like "Cute Mango" (inspired by LocalSend)
 - 🔄 **Auto Start** - Option to launch at system startup
 - 🔍 **Network Scan** - Trigger on-demand device discovery with one click
+- 🔗 **HTTP Polling** - Reliable cross-device session status checking (no missed WebSocket messages)
 
 ## 🏗 Architecture
 
@@ -33,7 +35,7 @@ quickshare/
 │   ├── transfer/  # File transfer logic with SHA256 verification
 │   └── crypto/    # SHA256 hashing & fingerprint generation
 ├── server/        # HTTP + WebSocket server (Axum)
-│   ├── handler/   # REST API handlers with streaming I/O
+│   ├── handler/   # REST API handlers with streaming I/O + chunked upload
 │   ├── ws/        # WebSocket real-time notifications
 │   └── state/     # Persistent application state
 ├── cli/           # CLI client (Clap)
@@ -48,12 +50,12 @@ quickshare/
 
 Download the latest release from the [Releases page](https://github.com/JiGuilin/QuickShare/releases):
 
-| Platform | File |
-|----------|------|
-| macOS (Apple Silicon) | `QuickShare_x.x.x_aarch64.dmg` |
-| macOS (Intel) | `QuickShare_x.x.x_x64.dmg` |
-| Windows | `QuickShare_x.x.x_x64-setup.exe` |
-| Linux | `QuickShare_x.x.x_amd64.deb` |
+|| Platform | File |
+||----------|------|
+|| macOS (Apple Silicon) | `QuickShare_x.x.x_aarch64.dmg` |
+|| macOS (Intel) | `QuickShare_x.x.x_x64.dmg` |
+|| Windows | `QuickShare_x.x.x_x64-setup.exe` |
+|| Linux | `QuickShare_x.x.x_amd64.deb` |
 
 ### CLI Usage
 
@@ -94,19 +96,21 @@ cd gui && npm install && npm run tauri build
 
 QuickShare uses a simple REST API protocol over HTTP with WebSocket for real-time updates:
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/info` | GET | Get device information |
-| `/api/devices` | GET | List discovered peer devices |
-| `/api/prepare-send` | POST | Prepare to receive files (with accept/reject flow) |
-| `/api/accept` | POST | Accept an incoming transfer |
-| `/api/reject` | POST | Reject an incoming transfer |
-| `/api/send` | POST | Upload file data (multipart with streaming) |
-| `/api/cancel` | POST | Cancel a transfer session |
-| `/api/settings` | GET/POST | Get or update settings (persisted) |
-| `/api/random-alias` | GET | Generate a random device alias (`?locale=en|zh`) |
-| `/api/scan` | POST | Trigger network scan (sends multicast announcement) |
-| `/api/ws` | WebSocket | Real-time notifications, progress, discovery |
+|| Endpoint | Method | Description |
+||----------|--------|-------------|
+|| `/api/info` | GET | Get device information |
+|| `/api/devices` | GET | List discovered peer devices |
+|| `/api/prepare-send` | POST | Prepare to receive files (with accept/reject flow) |
+|| `/api/accept` | POST | Accept an incoming transfer |
+|| `/api/reject` | POST | Reject an incoming transfer |
+|| `/api/send` | POST | Upload file data (multipart with streaming, for small files <8MB) |
+|| `/api/upload-chunk` | POST | Upload a file chunk (for large files ≥8MB) |
+|| `/api/cancel` | POST | Cancel a transfer session |
+|| `/api/session-status/{id}` | GET | Query session status (for sender polling) |
+|| `/api/settings` | GET/POST | Get or update settings (persisted) |
+|| `/api/random-alias` | GET | Generate a random device alias (`?locale=en|zh`) |
+|| `/api/scan` | POST | Trigger network scan (sends multicast announcement) |
+|| `/api/ws` | WebSocket | Real-time notifications, progress, discovery |
 
 ### Device Discovery
 
@@ -114,6 +118,8 @@ QuickShare uses a **dual discovery mechanism** for maximum compatibility:
 
 1. **UDP Multicast** (primary) - Sends JSON announcements to multicast group `224.0.0.167:53318`, compatible with LocalSend's discovery protocol
 2. **mDNS** (supplementary) - Registers `_quickshare._tcp.local.` service for networks that support Bonjour/Avahi
+
+All discovery protocols use the **SHA256 fingerprint** as the unique device ID, ensuring the same device is never listed twice regardless of which protocol found it.
 
 When a device starts, it:
 1. Binds a UDP socket and joins the multicast group on all local interfaces
@@ -123,15 +129,39 @@ When a device starts, it:
 
 When you click **Scan** in the GUI, a multicast announcement is sent, and all listening QuickShare devices respond with their info.
 
+### Large File Transfer (Chunked Upload)
+
+QuickShare supports transferring files of **any size** using a chunked upload mechanism:
+
+- **Small files (< 8MB)**: Uploaded in a single multipart request via `/api/send`
+- **Large files (≥ 8MB)**: Split into **4MB chunks** and uploaded sequentially via `/api/upload-chunk`
+
+**How it works:**
+
+1. The frontend reads the file using `File.slice()` — only one chunk is loaded into memory at a time
+2. Each chunk is sent as a raw binary POST request with metadata in query params:
+   - `session_id` — Transfer session ID
+   - `file_name` — Original file name
+   - `chunk_index` — 0-based chunk index
+   - `total_chunks` — Total number of chunks for this file
+   - `is_file_done` — `true` when the last chunk of a file is uploaded (triggers file assembly)
+   - `is_session_done` — `true` when the last chunk of the last file is uploaded (marks session complete)
+3. The server writes each chunk to a temporary directory
+4. When `is_file_done=true`, the server assembles all chunks into the final file and cleans up temp files
+5. Real-time progress with **transfer speed** is shown in the UI
+
+This approach ensures **constant memory usage** regardless of file size — a 10GB file uses the same memory as a 10MB file.
+
 ### Transfer Flow
 
 1. **Discovery**: Devices find each other via UDP multicast and/or mDNS
 2. **Prepare**: Sender calls `/api/prepare-send` with file metadata (including SHA256)
 3. **Accept/Reject**: Receiver confirms or rejects via UI (or auto-accept if enabled)
-4. **Upload**: Sender uploads files via multipart, server streams to disk
-5. **Progress**: Real-time progress updates via WebSocket (every 200ms)
-6. **Verify**: Server verifies file integrity using SHA256 checksum
-7. **Complete**: Both parties receive completion notification
+4. **Wait**: Sender polls `/api/session-status/{id}` until the receiver accepts (more reliable than cross-device WebSocket)
+5. **Upload**: Small files use multipart; large files use chunked upload
+6. **Progress**: Real-time progress with speed display via WebSocket (updated per chunk)
+7. **Verify**: Server verifies file integrity using SHA256 checksum
+8. **Complete**: Both parties receive completion notification
 
 ### Random Alias
 
@@ -177,6 +207,20 @@ If you cannot see other devices on the network:
 QuickShare needs the following ports open:
 - **TCP 53318** - HTTP server for file transfer
 - **UDP 53318** - Multicast discovery
+
+### Large file transfer fails
+
+If large file transfers fail or get stuck:
+1. Check that the receiving device has enough **disk space**
+2. Ensure a **stable Wi-Fi** connection — avoid networks with heavy interference
+3. The temp directory (`/tmp/quickshare-chunks/`) is cleaned up automatically after each session
+4. If a transfer is interrupted, stale temp files may remain — you can safely delete them manually
+
+### Duplicate devices in the list
+
+QuickShare uses a unified SHA256 fingerprint as the device ID across all discovery protocols. If you still see duplicates:
+1. Make sure both devices are running the **same version** of QuickShare
+2. Try clicking **Scan** again to refresh the device list
 
 ## 🤝 Contributing
 
