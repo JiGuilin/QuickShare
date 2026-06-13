@@ -1,0 +1,70 @@
+const zh = {
+  // 侧边栏
+  sidebar: {
+    receive: "接收",
+    send: "发送",
+    devices: "设备",
+    settings: "设置",
+    online: "在线",
+  },
+  // 接收页
+  receive: {
+    title: "准备接收",
+    subtitle: "等待其他设备发送文件...",
+    listening: "正在监听传入文件",
+    port: "端口",
+    visible: "对附近设备可见",
+    noTransfers: "暂无传入文件",
+    noTransfersHint: "从局域网内其他 QuickShare 设备发送文件",
+    from: "来自",
+  },
+  // 发送页
+  send: {
+    title: "发送文件",
+    subtitle: "选择文件和目标设备进行发送",
+    dragDrop: "拖拽文件到此处，或点击选择",
+    selectTarget: "选择目标设备",
+    noDevices: "未发现局域网内的设备",
+    scanAgain: "重新扫描",
+    sendFiles: "发送文件",
+    sending: "发送中...",
+    sent: "已发送！",
+    sendingTo: "正在发送至",
+  },
+  // 设备页
+  devices: {
+    title: "附近的设备",
+    subtitle: "发现 {count} 台设备",
+    scan: "扫描",
+    scanning: "扫描中...",
+    noDevices: "未发现设备",
+    noDevicesHint: "请确保其他设备在同一网络下运行 QuickShare",
+    online: "在线",
+  },
+  // 设置页
+  settings: {
+    title: "设置",
+    subtitle: "配置 QuickShare 偏好",
+    deviceAlias: "设备别名",
+    port: "端口",
+    downloadDir: "下载目录",
+    browse: "浏览",
+    autoAccept: "自动接收文件",
+    autoAcceptHint: "自动接收传入的文件",
+    startAtLogin: "开机自启动",
+    startAtLoginHint: "系统启动时运行 QuickShare",
+    language: "语言",
+    simplifiedChinese: "简体中文",
+    english: "English",
+  },
+  // 通用
+  common: {
+    appname: "快传",
+    cancel: "取消",
+    confirm: "确认",
+    close: "关闭",
+    save: "保存",
+  },
+};
+
+export default zh;
