@@ -1,5 +1,4 @@
 const zh = {
-  // 侧边栏
   sidebar: {
     receive: "接收",
     send: "发送",
@@ -8,7 +7,6 @@ const zh = {
     online: "在线",
     offline: "离线",
   },
-  // 接收页
   receive: {
     title: "准备接收",
     subtitle: "等待其他设备发送文件...",
@@ -24,8 +22,9 @@ const zh = {
     transferring: "传输中...",
     completed: "已完成",
     rejected: "已拒绝",
+    error: "出错",
+    waitingAccept: "等待接收方确认...",
   },
-  // 发送页
   send: {
     title: "发送文件",
     subtitle: "选择文件和目标设备进行发送",
@@ -39,7 +38,6 @@ const zh = {
     sendingTo: "正在发送至",
     files: "个文件",
   },
-  // 设备页
   devices: {
     title: "附近的设备",
     subtitle: "发现 {count} 台设备",
@@ -51,23 +49,25 @@ const zh = {
     connected: "已连接服务器",
     disconnected: "未连接服务器",
   },
-  // 设置页
   settings: {
     title: "设置",
     subtitle: "配置 QuickShare 偏好",
     deviceAlias: "设备别名",
     port: "端口",
+    portHint: "修改端口需要重启应用",
     downloadDir: "下载目录",
     browse: "浏览",
     autoAccept: "自动接收文件",
-    autoAcceptHint: "自动接收传入的文件",
+    autoAcceptHint: "无需确认自动接收传入的文件",
     startAtLogin: "开机自启动",
     startAtLoginHint: "系统启动时运行 QuickShare",
     language: "语言",
     simplifiedChinese: "简体中文",
     english: "English",
+    save: "保存设置",
+    saving: "保存中...",
+    saved: "已保存！",
   },
-  // 通用
   common: {
     appname: "快传",
     cancel: "取消",

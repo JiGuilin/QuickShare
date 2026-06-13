@@ -20,14 +20,14 @@ import {
   Zap,
   Globe,
   Upload,
+  Clock,
+  AlertCircle,
 } from "lucide-react";
 import { useI18n, availableLocales } from "./i18n";
 import { useQuickShare } from "./hooks/useWebSocket";
 
-// ─── API helpers ─────────────────────────────────────────────
 const API_BASE = "http://localhost:53318";
 
-// ─── Icon helpers ────────────────────────────────────────────
 function DeviceIcon({ type }) {
   switch (type) {
     case "mobile":
@@ -120,10 +120,10 @@ function ReceiveTab({ transfers, onAccept, onReject }) {
   const { t } = useI18n();
 
   const incomingTransfers = transfers.filter(
-    (tr) => tr.status === "pending" || tr.status === "receiving" || tr.status === "transferring"
+    (tr) => tr.status === "pending" || tr.status === "receiving" || tr.status === "transferring" || tr.status === "waiting_accept"
   );
   const completedTransfers = transfers.filter(
-    (tr) => tr.status === "completed" || tr.status === "rejected"
+    (tr) => tr.status === "completed" || tr.status === "rejected" || tr.status === "error"
   );
 
   return (
@@ -133,7 +133,6 @@ function ReceiveTab({ transfers, onAccept, onReject }) {
         <p className="text-sm text-gray-500 mt-1">{t("receive.subtitle")}</p>
       </div>
 
-      {/* Status indicator */}
       <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
         <div className="flex items-center gap-4">
           <div className="relative">
@@ -149,7 +148,6 @@ function ReceiveTab({ transfers, onAccept, onReject }) {
         </div>
       </div>
 
-      {/* Incoming transfers */}
       {incomingTransfers.length === 0 && completedTransfers.length === 0 ? (
         <div className="text-center py-12">
           <FolderOpen size={48} className="mx-auto text-gray-300 mb-3" />
@@ -213,6 +211,11 @@ function IncomingTransferCard({ transfer, onAccept, onReject }) {
             <X size={14} /> {t("receive.reject") || "Reject"}
           </button>
         </div>
+      ) : transfer.status === "waiting_accept" ? (
+        <div className="flex items-center gap-2 mt-3 text-xs text-amber-600">
+          <Clock size={14} />
+          <span>{t("receive.waitingAccept") || "Waiting for receiver to accept..."}</span>
+        </div>
       ) : (
         <>
           <div className="w-full bg-gray-100 rounded-full h-1.5 mt-2">
@@ -240,6 +243,8 @@ function CompletedTransferCard({ transfer }) {
       <div className="flex items-center gap-3">
         {transfer.status === "completed" ? (
           <Check size={20} className="text-green-500" />
+        ) : transfer.status === "error" ? (
+          <AlertCircle size={20} className="text-red-400" />
         ) : (
           <X size={20} className="text-red-400" />
         )}
@@ -248,8 +253,12 @@ function CompletedTransferCard({ transfer }) {
             {transfer.files?.[0]?.name || "Transfer"}
           </p>
         </div>
-        <span className={`text-xs ${transfer.status === "completed" ? "text-green-500" : "text-red-400"}`}>
-          {transfer.status === "completed" ? (t("receive.completed") || "Completed") : (t("receive.rejected") || "Rejected")}
+        <span className={`text-xs ${
+          transfer.status === "completed" ? "text-green-500" : transfer.status === "error" ? "text-red-400" : "text-red-400"
+        }`}>
+          {transfer.status === "completed" ? (t("receive.completed") || "Completed")
+            : transfer.status === "error" ? (t("receive.error") || "Error")
+            : (t("receive.rejected") || "Rejected")}
         </span>
       </div>
     </div>
@@ -308,7 +317,6 @@ function SendTab({ devices, onSend, myDevice }) {
         <p className="text-sm text-gray-500 mt-1">{t("send.subtitle")}</p>
       </div>
 
-      {/* File selection */}
       <div
         className="bg-white rounded-xl border-2 border-dashed border-gray-200 p-8 mb-6 text-center hover:border-primary-300 transition-colors cursor-pointer"
         onClick={() => fileInputRef.current?.click()}
@@ -339,7 +347,6 @@ function SendTab({ devices, onSend, myDevice }) {
         )}
       </div>
 
-      {/* Device selection */}
       <div className="mb-6">
         <h3 className="text-sm font-medium text-gray-700 mb-3">{t("send.selectTarget")}</h3>
         {devices.length === 0 ? (
@@ -375,7 +382,6 @@ function SendTab({ devices, onSend, myDevice }) {
         )}
       </div>
 
-      {/* Send button */}
       <button
         onClick={handleSend}
         disabled={!selectedDevice || fileObjects.length === 0 || sending}
@@ -429,7 +435,6 @@ function DevicesTab({ devices, scanning, onScan, connected }) {
         </button>
       </div>
 
-      {/* Connection status */}
       <div className={`mb-4 p-3 rounded-lg flex items-center gap-2 text-sm ${
         connected ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600"
       }`}>
@@ -476,8 +481,38 @@ function DevicesTab({ devices, scanning, onScan, connected }) {
   );
 }
 
-function SettingsTab() {
+function SettingsTab({ settings, onUpdateSettings }) {
   const { t, locale, setLocale } = useI18n();
+  const [alias, setAlias] = useState(settings.alias);
+  const [downloadDir, setDownloadDir] = useState(settings.download_dir);
+  const [autoAccept, setAutoAccept] = useState(settings.auto_accept);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  // Sync from props
+  useState(() => {
+    setAlias(settings.alias);
+    setDownloadDir(settings.download_dir);
+    setAutoAccept(settings.auto_accept);
+  });
+
+  const handleSave = async () => {
+    setSaving(true);
+    await onUpdateSettings({
+      alias: alias !== settings.alias ? alias : undefined,
+      download_dir: downloadDir !== settings.download_dir ? downloadDir : undefined,
+      auto_accept: autoAccept !== settings.auto_accept ? autoAccept : undefined,
+    });
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  const toggleAutoAccept = async () => {
+    const newVal = !autoAccept;
+    setAutoAccept(newVal);
+    await onUpdateSettings({ auto_accept: newVal });
+  };
 
   return (
     <div className="animate-fade-in">
@@ -489,20 +524,25 @@ function SettingsTab() {
       <div className="space-y-4">
         <div className="bg-white rounded-xl border border-gray-200 p-4">
           <label className="text-sm font-medium text-gray-700">{t("settings.deviceAlias")}</label>
-          <input
-            type="text"
-            defaultValue="My Mac"
-            className="mt-1 w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-300"
-          />
+          <div className="mt-1 flex gap-2">
+            <input
+              type="text"
+              value={alias}
+              onChange={(e) => setAlias(e.target.value)}
+              className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-300"
+            />
+          </div>
         </div>
 
         <div className="bg-white rounded-xl border border-gray-200 p-4">
           <label className="text-sm font-medium text-gray-700">{t("settings.port")}</label>
           <input
             type="number"
-            defaultValue={53318}
-            className="mt-1 w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-300"
+            value={settings.port}
+            disabled
+            className="mt-1 w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-500"
           />
+          <p className="text-xs text-gray-400 mt-1">{t("settings.portHint") || "Port change requires restart"}</p>
         </div>
 
         <div className="bg-white rounded-xl border border-gray-200 p-4">
@@ -510,17 +550,13 @@ function SettingsTab() {
           <div className="mt-1 flex gap-2">
             <input
               type="text"
-              defaultValue="~/Downloads/QuickShare"
+              value={downloadDir}
+              onChange={(e) => setDownloadDir(e.target.value)}
               className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-300"
-              readOnly
             />
-            <button className="px-3 py-2 bg-gray-100 rounded-lg text-sm hover:bg-gray-200 transition-colors">
-              {t("settings.browse")}
-            </button>
           </div>
         </div>
 
-        {/* 语言设置 */}
         <div className="bg-white rounded-xl border border-gray-200 p-4">
           <div className="flex items-center gap-2 mb-3">
             <Globe size={16} className="text-gray-500" />
@@ -549,8 +585,15 @@ function SettingsTab() {
               <p className="text-sm font-medium text-gray-700">{t("settings.autoAccept")}</p>
               <p className="text-xs text-gray-400">{t("settings.autoAcceptHint")}</p>
             </div>
-            <button className="w-10 h-6 bg-primary-500 rounded-full relative">
-              <div className="w-4 h-4 bg-white rounded-full absolute right-1 top-1"></div>
+            <button
+              onClick={toggleAutoAccept}
+              className={`w-10 h-6 rounded-full relative transition-colors ${
+                autoAccept ? "bg-primary-500" : "bg-gray-200"
+              }`}
+            >
+              <div className={`w-4 h-4 bg-white rounded-full absolute top-1 transition-all ${
+                autoAccept ? "right-1" : "left-1"
+              }`}></div>
             </button>
           </div>
         </div>
@@ -566,6 +609,33 @@ function SettingsTab() {
             </button>
           </div>
         </div>
+
+        {/* Save button */}
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className={`w-full py-3 rounded-xl font-medium text-white transition-all ${
+            saved
+              ? "bg-green-500"
+              : saving
+              ? "bg-primary-400 cursor-wait"
+              : "bg-primary-500 hover:bg-primary-600"
+          }`}
+        >
+          {saved ? (
+            <span className="flex items-center justify-center gap-2">
+              <Check size={18} /> {t("settings.saved") || "Saved!"}
+            </span>
+          ) : saving ? (
+            <span className="flex items-center justify-center gap-2">
+              <RefreshCw size={18} className="animate-spin" /> {t("settings.saving") || "Saving..."}
+            </span>
+          ) : (
+            <span className="flex items-center justify-center gap-2">
+              {t("settings.save") || "Save Settings"}
+            </span>
+          )}
+        </button>
       </div>
     </div>
   );
@@ -576,7 +646,11 @@ function SettingsTab() {
 export default function App() {
   const [activeTab, setActiveTab] = useState("receive");
   const [scanning, setScanning] = useState(false);
-  const { devices, transfers, connected, sendFiles, acceptTransfer, rejectTransfer, scan } = useQuickShare();
+  const {
+    devices, transfers, connected, settings,
+    sendFiles, acceptTransfer, rejectTransfer,
+    scan, updateSettings,
+  } = useQuickShare();
 
   const handleScan = useCallback(async () => {
     setScanning(true);
@@ -597,7 +671,9 @@ export default function App() {
         {activeTab === "devices" && (
           <DevicesTab devices={devices} scanning={scanning} onScan={handleScan} connected={connected} />
         )}
-        {activeTab === "settings" && <SettingsTab />}
+        {activeTab === "settings" && (
+          <SettingsTab settings={settings} onUpdateSettings={updateSettings} />
+        )}
       </main>
     </div>
   );

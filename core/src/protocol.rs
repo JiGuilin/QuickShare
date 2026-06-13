@@ -61,7 +61,10 @@ pub mod routes {
     pub const SEND: &str = "/api/send";
     pub const RECEIVE: &str = "/api/receive";
     pub const PREPARE_SEND: &str = "/api/prepare-send";
+    pub const ACCEPT: &str = "/api/accept";
+    pub const REJECT: &str = "/api/reject";
     pub const CANCEL: &str = "/api/cancel";
+    pub const SETTINGS: &str = "/api/settings";
     pub const WS: &str = "/api/ws";
 }
 
@@ -93,6 +96,19 @@ pub struct PrepareSendResponse {
     pub output_dir: Option<String>,
 }
 
+/// Request: Accept an incoming transfer
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AcceptRequest {
+    pub session_id: String,
+}
+
+/// Request: Reject an incoming transfer
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RejectRequest {
+    pub session_id: String,
+    pub reason: Option<String>,
+}
+
 /// File metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileMeta {
@@ -120,6 +136,24 @@ pub struct CancelRequest {
     pub reason: String,
 }
 
+/// Settings request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SettingsRequest {
+    pub alias: Option<String>,
+    pub port: Option<u16>,
+    pub download_dir: Option<String>,
+    pub auto_accept: Option<bool>,
+}
+
+/// Settings response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SettingsResponse {
+    pub alias: String,
+    pub port: u16,
+    pub download_dir: String,
+    pub auto_accept: bool,
+}
+
 /// WebSocket message types
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -133,11 +167,13 @@ pub enum WsMessage {
     #[serde(rename = "update")]
     Update { device: DeviceInfo },
     #[serde(rename = "transfer_request")]
-    TransferRequest { from: DeviceInfo, files: Vec<FileMeta> },
+    TransferRequest { session_id: String, from: DeviceInfo, files: Vec<FileMeta> },
     #[serde(rename = "transfer_response")]
     TransferResponse { session_id: String, accepted: bool },
     #[serde(rename = "progress")]
     Progress { progress: TransferProgress },
+    #[serde(rename = "transfer_complete")]
+    TransferComplete { session_id: String },
     #[serde(rename = "error")]
     Error { code: u16, message: String },
 }

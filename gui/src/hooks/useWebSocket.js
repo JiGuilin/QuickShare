@@ -3,21 +3,23 @@ import { useState, useEffect, useRef, useCallback } from "react";
 const WS_URL = "ws://localhost:53318/api/ws";
 const API_BASE = "http://localhost:53318";
 
-/**
- * Custom hook: manages WebSocket connection to QuickShare backend.
- * Returns devices, transfers, and send function.
- */
 export function useQuickShare() {
   const [devices, setDevices] = useState([]);
   const [transfers, setTransfers] = useState([]);
   const [connected, setConnected] = useState(false);
   const [myDevice, setMyDevice] = useState(null);
+  const [settings, setSettings] = useState({
+    alias: "",
+    port: 53318,
+    download_dir: "",
+    auto_accept: false,
+  });
   const wsRef = useRef(null);
   const reconnectTimer = useRef(null);
 
   // ── connect ────────────────────────────────────────────
   const connect = useCallback(() => {
-    if (wsRef.current && wsRef.current.readyState <= 1) return; // already connecting/open
+    if (wsRef.current && wsRef.current.readyState <= 1) return;
 
     const ws = new WebSocket(WS_URL);
 
@@ -28,7 +30,6 @@ export function useQuickShare() {
     ws.onclose = () => {
       setConnected(false);
       wsRef.current = null;
-      // auto-reconnect after 2s
       reconnectTimer.current = setTimeout(() => connect(), 2000);
     };
 
@@ -53,7 +54,6 @@ export function useQuickShare() {
     switch (msg.type) {
       case "hello": {
         setMyDevice(msg.device);
-        // Initialize devices from the peers list the server knows about
         if (msg.peers && msg.peers.length > 0) {
           setDevices((prev) => {
             const map = new Map(prev.map((d) => [d.id, d]));
@@ -80,11 +80,11 @@ export function useQuickShare() {
         setTransfers((prev) => [
           ...prev,
           {
-            id: crypto.randomUUID(),
-            sessionId: null,
+            id: msg.session_id || crypto.randomUUID(),
+            sessionId: msg.session_id,
             from: msg.from,
             files: msg.files,
-            status: "pending", // waiting for user to accept
+            status: "pending",
             bytesTransferred: 0,
             totalBytes: msg.files.reduce((s, f) => s + f.size, 0),
           },
@@ -92,7 +92,6 @@ export function useQuickShare() {
         break;
       }
       case "transfer_response": {
-        // A receiver accepted/rejected
         setTransfers((prev) =>
           prev.map((t) =>
             t.sessionId === msg.session_id
@@ -118,6 +117,16 @@ export function useQuickShare() {
         );
         break;
       }
+      case "transfer_complete": {
+        setTransfers((prev) =>
+          prev.map((t) =>
+            t.sessionId === msg.session_id
+              ? { ...t, status: "completed", bytesTransferred: t.totalBytes }
+              : t
+          )
+        );
+        break;
+      }
       default:
         break;
     }
@@ -135,6 +144,12 @@ export function useQuickShare() {
       })
       .catch(() => {});
 
+    // Fetch settings
+    fetch(`${API_BASE}/api/settings`)
+      .then((r) => r.json())
+      .then((s) => setSettings(s))
+      .catch(() => {});
+
     connect();
     return () => {
       clearTimeout(reconnectTimer.current);
@@ -144,21 +159,38 @@ export function useQuickShare() {
 
   // ── accept incoming transfer ───────────────────────────
   const acceptTransfer = useCallback(async (transfer) => {
-    // Auto-accept via prepare-send (the server already auto-accepts)
-    setTransfers((prev) =>
-      prev.map((t) =>
-        t.id === transfer.id ? { ...t, status: "receiving" } : t
-      )
-    );
+    try {
+      await fetch(`${API_BASE}/api/accept`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: transfer.sessionId }),
+      });
+      setTransfers((prev) =>
+        prev.map((t) =>
+          t.id === transfer.id ? { ...t, status: "receiving" } : t
+        )
+      );
+    } catch (err) {
+      console.error("Accept failed:", err);
+    }
   }, []);
 
   // ── reject incoming transfer ───────────────────────────
-  const rejectTransfer = useCallback((transfer) => {
-    setTransfers((prev) =>
-      prev.map((t) =>
-        t.id === transfer.id ? { ...t, status: "rejected" } : t
-      )
-    );
+  const rejectTransfer = useCallback(async (transfer) => {
+    try {
+      await fetch(`${API_BASE}/api/reject`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: transfer.sessionId, reason: "User rejected" }),
+      });
+      setTransfers((prev) =>
+        prev.map((t) =>
+          t.id === transfer.id ? { ...t, status: "rejected" } : t
+        )
+      );
+    } catch (err) {
+      console.error("Reject failed:", err);
+    }
   }, []);
 
   // ── send files to a device ─────────────────────────────
@@ -168,7 +200,6 @@ export function useQuickShare() {
     const transferId = crypto.randomUUID();
     const totalSize = Array.from(files).reduce((s, f) => s + f.size, 0);
 
-    // Add a "sending" transfer to the list
     setTransfers((prev) => [
       ...prev,
       {
@@ -215,7 +246,25 @@ export function useQuickShare() {
       }
 
       const prepareData = await prepareResp.json();
-      if (!prepareData.accepted) {
+
+      // Check if the receiver needs manual confirmation (accepted: false, session_id present)
+      if (!prepareData.accepted && prepareData.session_id) {
+        // Waiting for receiver to accept - update status
+        setTransfers((prev) =>
+          prev.map((t) =>
+            t.id === transferId
+              ? { ...t, status: "waiting_accept", sessionId: prepareData.session_id }
+              : t
+          )
+        );
+
+        // Wait for WS notification (transfer_response with accepted: true)
+        // For simplicity, we'll poll the session status
+        // The WS handler will update the status when transfer_response comes
+        return;
+      }
+
+      if (!prepareData.accepted && !prepareData.session_id) {
         setTransfers((prev) =>
           prev.map((t) =>
             t.id === transferId ? { ...t, status: "rejected" } : t
@@ -286,14 +335,31 @@ export function useQuickShare() {
     }
   }, []);
 
+  // ── update settings ────────────────────────────────────
+  const updateSettings = useCallback(async (newSettings) => {
+    try {
+      const resp = await fetch(`${API_BASE}/api/settings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newSettings),
+      });
+      const updated = await resp.json();
+      setSettings(updated);
+    } catch (e) {
+      console.error("Update settings failed:", e);
+    }
+  }, []);
+
   return {
     devices,
     transfers,
     connected,
     myDevice,
+    settings,
     sendFiles,
     acceptTransfer,
     rejectTransfer,
     scan,
+    updateSettings,
   };
 }

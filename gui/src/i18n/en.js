@@ -1,5 +1,4 @@
 const en = {
-  // Sidebar
   sidebar: {
     receive: "Receive",
     send: "Send",
@@ -8,7 +7,6 @@ const en = {
     online: "Online",
     offline: "Offline",
   },
-  // Receive page
   receive: {
     title: "Ready to Receive",
     subtitle: "Waiting for other devices to send files...",
@@ -24,8 +22,9 @@ const en = {
     transferring: "Transferring...",
     completed: "Completed",
     rejected: "Rejected",
+    error: "Error",
+    waitingAccept: "Waiting for receiver to accept...",
   },
-  // Send page
   send: {
     title: "Send Files",
     subtitle: "Select files and a target device to send",
@@ -39,7 +38,6 @@ const en = {
     sendingTo: "Sending to",
     files: "files",
   },
-  // Devices page
   devices: {
     title: "Nearby Devices",
     subtitle: "{count} device(s) found",
@@ -51,23 +49,25 @@ const en = {
     connected: "Connected to server",
     disconnected: "Disconnected from server",
   },
-  // Settings page
   settings: {
     title: "Settings",
     subtitle: "Configure QuickShare preferences",
     deviceAlias: "Device Alias",
     port: "Port",
+    portHint: "Port change requires restart",
     downloadDir: "Download Directory",
     browse: "Browse",
     autoAccept: "Auto-accept files",
-    autoAcceptHint: "Accept incoming files automatically",
+    autoAcceptHint: "Accept incoming files automatically without confirmation",
     startAtLogin: "Start at login",
     startAtLoginHint: "Launch QuickShare when the system starts",
     language: "Language",
     simplifiedChinese: "简体中文",
     english: "English",
+    save: "Save Settings",
+    saving: "Saving...",
+    saved: "Saved!",
   },
-  // Common
   common: {
     appname: "QuickShare",
     cancel: "Cancel",
