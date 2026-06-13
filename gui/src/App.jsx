@@ -23,7 +23,6 @@ import {
   Clock,
   AlertCircle,
   Folder,
-  Monitor,
 } from "lucide-react";
 import { useI18n, availableLocales } from "./i18n";
 import { useQuickShare } from "./hooks/useWebSocket";
