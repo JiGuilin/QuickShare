@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check-rust:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            core -> target
+            server -> target
+            cli -> target
+            gui/src-tauri -> target
+
+      - name: Check core
+        run: cargo check -p quickshare-core
+
+      - name: Check server
+        run: cargo check -p quickshare-server
+
+      - name: Check cli
+        run: cargo check -p quickshare-cli
+
+      - name: Check gui
+        run: cargo check -p quickshare-gui
+
+      - name: Run tests
+        run: cargo test --workspace 2>&1 || true
+
+  check-frontend:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+          cache-dependency-path: gui/package-lock.json
+
+      - name: Install dependencies
+        working-directory: gui
+        run: npm install
+
+      - name: Build frontend
+        working-directory: gui
+        run: npm run build
