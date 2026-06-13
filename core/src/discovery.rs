@@ -13,16 +13,18 @@ pub struct DiscoveryService {
     service_type: String,
     port: u16,
     alias: String,
+    fingerprint: String,
     mdns: ServiceDaemon,
 }
 
 impl DiscoveryService {
-    pub fn new(alias: String, port: u16) -> Result<Self> {
+    pub fn new(alias: String, port: u16, fingerprint: String) -> Result<Self> {
         let mdns = ServiceDaemon::new()?;
         Ok(Self {
             service_type: SERVICE_TYPE.to_string(),
             port,
             alias,
+            fingerprint,
             mdns,
         })
     }
@@ -35,6 +37,8 @@ impl DiscoveryService {
         let properties: Vec<(String, String)> = vec![
             ("alias".to_string(), self.alias.clone()),
             ("version".to_string(), crate::PROTOCOL_VERSION.to_string()),
+            ("fingerprint".to_string(), self.fingerprint.clone()),
+            ("os".to_string(), std::env::consts::OS.to_string()),
         ];
 
         let service_info = ServiceInfo::new(
@@ -56,16 +60,28 @@ impl DiscoveryService {
     pub fn browse(&self) -> mpsc::UnboundedReceiver<DiscoveryEvent> {
         let (tx, rx) = mpsc::unbounded_channel();
         let receiver = self.mdns.browse(&self.service_type).unwrap();
+        let my_fingerprint = self.fingerprint.clone();
 
         std::thread::spawn(move || {
             while let Ok(event) = receiver.recv() {
                 match event {
                     ServiceEvent::ServiceResolved(info) => {
+                        // Filter out our own device by fingerprint
+                        let fp = info.get_property_val_str("fingerprint")
+                            .map(|s| s.to_string())
+                            .unwrap_or_default();
+                        if fp == my_fingerprint {
+                            continue;
+                        }
+
                         let alias = info.get_property_val_str("alias")
                             .map(|s| s.to_string())
                             .unwrap_or_else(|| "Unknown".to_string());
                         let port = info.get_port();
                         let addresses = info.get_addresses();
+                        let os = info.get_property_val_str("os")
+                            .map(|s| s.to_string())
+                            .unwrap_or_default();
 
                         if let Some(ip) = addresses.iter().next() {
                             let device = DeviceInfo {
@@ -78,8 +94,8 @@ impl DiscoveryService {
                                     .unwrap_or_default(),
                                 device_model: String::new(),
                                 device_type: crate::protocol::DeviceType::Desktop,
-                                fingerprint: String::new(),
-                                os: String::new(),
+                                fingerprint: fp,
+                                os,
                             };
 
                             let _ = tx.send(DiscoveryEvent::DeviceFound(device));

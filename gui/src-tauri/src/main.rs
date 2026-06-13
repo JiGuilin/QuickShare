@@ -5,6 +5,10 @@ use quickshare_server::run_server;
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .setup(|_app| {
             let alias = whoami::fallible::hostname().unwrap_or_else(|_| "QuickShare".to_string());
             let port = DEFAULT_PORT;

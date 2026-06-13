@@ -113,7 +113,7 @@ async fn run_server(port: u16, alias: String, output: Option<String>) -> Result<
     }
 
     // Start mDNS discovery
-    let discovery = DiscoveryService::new(alias.clone(), port)?;
+    let discovery = DiscoveryService::new(alias.clone(), port, String::new())?;
     discovery.register()?;
 
     println!();
@@ -217,7 +217,7 @@ async fn discover_devices(duration: u64, alias: &str) -> Result<()> {
     println!("{}", "╚══════════════════════════════════════╝".cyan());
     println!();
 
-    let discovery = DiscoveryService::new(alias.to_string(), DEFAULT_PORT)?;
+    let discovery = DiscoveryService::new(alias.to_string(), DEFAULT_PORT, String::new())?;
     let mut rx = discovery.browse();
 
     println!("  {} Scanning for {} seconds...\n", "⏳".yellow(), duration);

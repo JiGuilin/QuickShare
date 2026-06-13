@@ -207,6 +207,11 @@ pub async fn send_file(
         info!("✅ File saved: {:?} ({} bytes)", file_path, total_bytes);
     }
 
+    // Notify WebSocket clients that transfer is complete
+    notify_ws(&state, &quickshare_core::protocol::WsMessage::TransferComplete {
+        session_id: "latest".to_string(), // No session_id from multipart, use marker
+    }).await;
+
     Ok(StatusCode::OK)
 }
 

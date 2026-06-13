@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import {
   Send,
   Download,
@@ -486,15 +486,25 @@ function SettingsTab({ settings, onUpdateSettings }) {
   const [alias, setAlias] = useState(settings.alias);
   const [downloadDir, setDownloadDir] = useState(settings.download_dir);
   const [autoAccept, setAutoAccept] = useState(settings.auto_accept);
+  const [startAtLogin, setStartAtLogin] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  // Sync from props
-  useState(() => {
+  // Sync from props when settings update
+  useEffect(() => {
     setAlias(settings.alias);
     setDownloadDir(settings.download_dir);
     setAutoAccept(settings.auto_accept);
-  });
+  }, [settings.alias, settings.download_dir, settings.auto_accept]);
+
+  // Check autostart status on mount
+  useEffect(() => {
+    if (window.__TAURI__) {
+      import("@tauri-apps/plugin-autostart").then((mod) => {
+        mod.isEnabled().then((enabled) => setStartAtLogin(enabled)).catch(() => {});
+      }).catch(() => {});
+    }
+  }, []);
 
   const handleSave = async () => {
     setSaving(true);
@@ -514,6 +524,22 @@ function SettingsTab({ settings, onUpdateSettings }) {
     await onUpdateSettings({ auto_accept: newVal });
   };
 
+  const toggleStartAtLogin = async () => {
+    if (!window.__TAURI__) return;
+    try {
+      const mod = await import("@tauri-apps/plugin-autostart");
+      if (startAtLogin) {
+        await mod.disable();
+        setStartAtLogin(false);
+      } else {
+        await mod.enable();
+        setStartAtLogin(true);
+      }
+    } catch (err) {
+      console.error("Autostart toggle failed:", err);
+    }
+  };
+
   return (
     <div className="animate-fade-in">
       <div className="mb-6">
@@ -527,7 +553,7 @@ function SettingsTab({ settings, onUpdateSettings }) {
           <div className="mt-1 flex gap-2">
             <input
               type="text"
-              value={alias}
+              value={alias || ""}
               onChange={(e) => setAlias(e.target.value)}
               className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-300"
             />
@@ -550,7 +576,7 @@ function SettingsTab({ settings, onUpdateSettings }) {
           <div className="mt-1 flex gap-2">
             <input
               type="text"
-              value={downloadDir}
+              value={downloadDir || ""}
               onChange={(e) => setDownloadDir(e.target.value)}
               className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-300"
             />
@@ -604,8 +630,15 @@ function SettingsTab({ settings, onUpdateSettings }) {
               <p className="text-sm font-medium text-gray-700">{t("settings.startAtLogin")}</p>
               <p className="text-xs text-gray-400">{t("settings.startAtLoginHint")}</p>
             </div>
-            <button className="w-10 h-6 bg-gray-200 rounded-full relative">
-              <div className="w-4 h-4 bg-white rounded-full absolute left-1 top-1"></div>
+            <button
+              onClick={toggleStartAtLogin}
+              className={`w-10 h-6 rounded-full relative transition-colors ${
+                startAtLogin ? "bg-primary-500" : "bg-gray-200"
+              }`}
+            >
+              <div className={`w-4 h-4 bg-white rounded-full absolute top-1 transition-all ${
+                startAtLogin ? "right-1" : "left-1"
+              }`}></div>
             </button>
           </div>
         </div>

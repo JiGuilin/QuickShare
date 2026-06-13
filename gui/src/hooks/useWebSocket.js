@@ -17,6 +17,9 @@ export function useQuickShare() {
   const wsRef = useRef(null);
   const reconnectTimer = useRef(null);
 
+  // Store pending file uploads that are waiting for accept
+  const pendingUploads = useRef({});
+
   // ── connect ────────────────────────────────────────────
   const connect = useCallback(() => {
     if (wsRef.current && wsRef.current.readyState <= 1) return;
@@ -92,13 +95,39 @@ export function useQuickShare() {
         break;
       }
       case "transfer_response": {
-        setTransfers((prev) =>
-          prev.map((t) =>
-            t.sessionId === msg.session_id
-              ? { ...t, status: msg.accepted ? "accepted" : "rejected" }
-              : t
-          )
-        );
+        const { session_id, accepted } = msg;
+
+        if (accepted) {
+          // The receiver accepted - check if we have a pending upload to resume
+          const pending = pendingUploads.current[session_id];
+          if (pending) {
+            // Resume the upload
+            doUpload(session_id, pending.device, pending.files, pending.transferId);
+            delete pendingUploads.current[session_id];
+          }
+
+          // Update transfer status
+          setTransfers((prev) =>
+            prev.map((t) =>
+              t.sessionId === session_id
+                ? { ...t, status: t.status === "waiting_accept" ? "transferring" : (t.status === "pending" ? "receiving" : t.status) }
+                : t
+            )
+          );
+        } else {
+          // Rejected
+          const pending = pendingUploads.current[session_id];
+          if (pending) {
+            delete pendingUploads.current[session_id];
+          }
+          setTransfers((prev) =>
+            prev.map((t) =>
+              t.sessionId === session_id
+                ? { ...t, status: "rejected" }
+                : t
+            )
+          );
+        }
         break;
       }
       case "progress": {
@@ -132,9 +161,61 @@ export function useQuickShare() {
     }
   }, []);
 
+  // ── actual upload function ─────────────────────────────
+  const doUpload = useCallback(async (sessionId, device, files, transferId) => {
+    const base = `http://${device.ip}:${device.port}`;
+
+    setTransfers((prev) =>
+      prev.map((t) =>
+        t.id === transferId
+          ? { ...t, status: "transferring", sessionId }
+          : t
+      )
+    );
+
+    try {
+      let bytesDone = 0;
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const resp = await fetch(`${base}/api/send`, {
+          method: "POST",
+          body: formData,
+        });
+
+        if (resp.ok) {
+          bytesDone += file.size;
+          setTransfers((prev) =>
+            prev.map((t) =>
+              t.id === transferId
+                ? { ...t, bytesTransferred: bytesDone }
+                : t
+            )
+          );
+        } else {
+          throw new Error(`Upload failed for ${file.name}`);
+        }
+      }
+
+      setTransfers((prev) =>
+        prev.map((t) =>
+          t.id === transferId ? { ...t, status: "completed" } : t
+        )
+      );
+    } catch (err) {
+      console.error("Upload error:", err);
+      setTransfers((prev) =>
+        prev.map((t) =>
+          t.id === transferId ? { ...t, status: "error", error: err.message } : t
+        )
+      );
+    }
+  }, []);
+
   // ── initial connection ─────────────────────────────────
   useEffect(() => {
-    // Fetch devices via REST as fallback
     fetch(`${API_BASE}/api/devices`)
       .then((r) => r.json())
       .then((list) => {
@@ -144,7 +225,6 @@ export function useQuickShare() {
       })
       .catch(() => {});
 
-    // Fetch settings
     fetch(`${API_BASE}/api/settings`)
       .then((r) => r.json())
       .then((s) => setSettings(s))
@@ -222,7 +302,6 @@ export function useQuickShare() {
     try {
       const base = `http://${device.ip}:${device.port}`;
 
-      // 1. Prepare send
       const fileMetas = Array.from(files).map((f) => ({
         id: crypto.randomUUID(),
         name: f.name,
@@ -247,9 +326,14 @@ export function useQuickShare() {
 
       const prepareData = await prepareResp.json();
 
-      // Check if the receiver needs manual confirmation (accepted: false, session_id present)
       if (!prepareData.accepted && prepareData.session_id) {
-        // Waiting for receiver to accept - update status
+        // Receiver needs to confirm - store the pending upload and wait
+        pendingUploads.current[prepareData.session_id] = {
+          device,
+          files: Array.from(files),
+          transferId,
+        };
+
         setTransfers((prev) =>
           prev.map((t) =>
             t.id === transferId
@@ -257,14 +341,11 @@ export function useQuickShare() {
               : t
           )
         );
-
-        // Wait for WS notification (transfer_response with accepted: true)
-        // For simplicity, we'll poll the session status
-        // The WS handler will update the status when transfer_response comes
+        // The upload will be resumed when we receive a WS transfer_response with accepted: true
         return;
       }
 
-      if (!prepareData.accepted && !prepareData.session_id) {
+      if (!prepareData.accepted) {
         setTransfers((prev) =>
           prev.map((t) =>
             t.id === transferId ? { ...t, status: "rejected" } : t
@@ -273,45 +354,8 @@ export function useQuickShare() {
         return;
       }
 
-      setTransfers((prev) =>
-        prev.map((t) =>
-          t.id === transferId
-            ? { ...t, status: "transferring", sessionId: prepareData.session_id }
-            : t
-        )
-      );
-
-      // 2. Upload each file via multipart
-      let bytesDone = 0;
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        const formData = new FormData();
-        formData.append("file", file);
-
-        const resp = await fetch(`${base}/api/send`, {
-          method: "POST",
-          body: formData,
-        });
-
-        if (resp.ok) {
-          bytesDone += file.size;
-          setTransfers((prev) =>
-            prev.map((t) =>
-              t.id === transferId
-                ? { ...t, bytesTransferred: bytesDone }
-                : t
-            )
-          );
-        } else {
-          throw new Error(`Upload failed for ${file.name}`);
-        }
-      }
-
-      setTransfers((prev) =>
-        prev.map((t) =>
-          t.id === transferId ? { ...t, status: "completed" } : t
-        )
-      );
+      // Auto-accepted - upload immediately
+      await doUpload(prepareData.session_id, device, Array.from(files), transferId);
     } catch (err) {
       console.error("Send failed:", err);
       setTransfers((prev) =>
@@ -320,7 +364,7 @@ export function useQuickShare() {
         )
       );
     }
-  }, [myDevice]);
+  }, [myDevice, doUpload]);
 
   // ── scan (triggered by user) ────────────────────────────
   const scan = useCallback(async () => {

@@ -20,11 +20,11 @@ pub async fn run_server(port: u16, alias: String) -> Result<()> {
     let state = AppState::new(alias.clone(), port);
     let port = if port == 0 { DEFAULT_PORT } else { port };
 
-    // Get our own device ID to filter self from discovery
-    let my_device_id = state.get_device_info().await.id;
+    // Get our fingerprint to pass to discovery for self-filtering
+    let my_fingerprint = state.get_device_info().await.fingerprint;
 
     // mDNS discovery
-    let discovery = match DiscoveryService::new(alias.clone(), port) {
+    let discovery = match DiscoveryService::new(alias.clone(), port, my_fingerprint) {
         Ok(d) => {
             if let Err(e) = d.register() {
                 info!("Warning: mDNS registration failed: {}", e);
@@ -43,16 +43,11 @@ pub async fn run_server(port: u16, alias: String) -> Result<()> {
     if let Some(disc) = discovery {
         let mut rx = disc.browse();
         let state_clone = state.clone();
-        let my_id = my_device_id.clone();
         tokio::spawn(async move {
             loop {
                 match rx.try_recv() {
                     Ok(event) => match event {
                         quickshare_core::discovery::DiscoveryEvent::DeviceFound(device) => {
-                            // Filter out our own device
-                            if device.id == my_id {
-                                continue;
-                            }
                             info!("mDNS: Device found: {} ({})", device.alias, device.ip);
                             let id = device.id.clone();
                             state_clone.peers.lock().await.insert(id.clone(), device.clone());
