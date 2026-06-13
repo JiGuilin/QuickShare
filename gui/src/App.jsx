@@ -30,7 +30,6 @@ import { useQuickShare } from "./hooks/useWebSocket";
 // Tauri plugins - imported statically, but only used when window.__TAURI__ is available
 import * as tauriDialog from "@tauri-apps/plugin-dialog";
 import * as tauriAutostart from "@tauri-apps/plugin-autostart";
-import * as tauriOs from "@tauri-apps/plugin-os";
 
 const API_BASE = "http://localhost:53318";
 
@@ -573,19 +572,21 @@ function SettingsTab({ settings, onUpdateSettings }) {
   };
 
   const useSystemName = async () => {
-    if (window.__TAURI__) {
-      try {
-        const hostname = tauriOs.hostname();
-        if (hostname) {
-          setAlias(hostname);
-          return;
-        }
-      } catch (err) {
-        // Fallback
+    try {
+      // Use the backend API to get the system hostname (works in both Tauri and browser)
+      const resp = await fetch(`${API_BASE}/api/info`);
+      const data = await resp.json();
+      // The device_model field contains the hostname
+      if (data.device?.device_model) {
+        setAlias(data.device.device_model);
+        return;
       }
+    } catch (err) {
+      // Backend not available yet
     }
-    // Fallback: use browser hostname or default
-    setAlias(navigator.userAgent?.split(" ").pop()?.split("/")[0] || "QuickShare");
+
+    // Fallback
+    setAlias("QuickShare");
   };
 
   return (
