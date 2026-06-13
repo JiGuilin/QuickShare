@@ -6,6 +6,7 @@ const zh = {
     devices: "设备",
     settings: "设置",
     online: "在线",
+    offline: "离线",
   },
   // 接收页
   receive: {
@@ -17,6 +18,12 @@ const zh = {
     noTransfers: "暂无传入文件",
     noTransfersHint: "从局域网内其他 QuickShare 设备发送文件",
     from: "来自",
+    accept: "接收",
+    reject: "拒绝",
+    receiving: "接收中...",
+    transferring: "传输中...",
+    completed: "已完成",
+    rejected: "已拒绝",
   },
   // 发送页
   send: {
@@ -30,6 +37,7 @@ const zh = {
     sending: "发送中...",
     sent: "已发送！",
     sendingTo: "正在发送至",
+    files: "个文件",
   },
   // 设备页
   devices: {
@@ -40,6 +48,8 @@ const zh = {
     noDevices: "未发现设备",
     noDevicesHint: "请确保其他设备在同一网络下运行 QuickShare",
     online: "在线",
+    connected: "已连接服务器",
+    disconnected: "未连接服务器",
   },
   // 设置页
   settings: {

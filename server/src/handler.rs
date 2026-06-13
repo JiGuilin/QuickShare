@@ -5,7 +5,7 @@ use tokio::fs;
 use tracing::{info, warn, error};
 
 use quickshare_core::protocol::{
-    CancelRequest, InfoResponse,
+    CancelRequest, DeviceInfo, InfoResponse,
     PrepareSendRequest, PrepareSendResponse,
 };
 use quickshare_core::transfer::{FileReceiver, TransferSession, TransferStatus};
@@ -16,6 +16,13 @@ use crate::state::AppState;
 pub async fn get_info(State(state): State<AppState>) -> Json<InfoResponse> {
     let device = state.get_device_info().await;
     Json(InfoResponse { device })
+}
+
+/// GET /api/devices - Return discovered peer devices
+pub async fn get_devices(State(state): State<AppState>) -> Json<Vec<DeviceInfo>> {
+    let peers = state.peers.lock().await;
+    let devices: Vec<DeviceInfo> = peers.values().cloned().collect();
+    Json(devices)
 }
 
 /// POST /api/prepare-send - Prepare to receive files from another device

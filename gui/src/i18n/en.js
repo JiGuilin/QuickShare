@@ -6,6 +6,7 @@ const en = {
     devices: "Devices",
     settings: "Settings",
     online: "Online",
+    offline: "Offline",
   },
   // Receive page
   receive: {
@@ -17,6 +18,12 @@ const en = {
     noTransfers: "No incoming transfers yet",
     noTransfersHint: "Send files from another QuickShare device on your network",
     from: "From",
+    accept: "Accept",
+    reject: "Reject",
+    receiving: "Receiving...",
+    transferring: "Transferring...",
+    completed: "Completed",
+    rejected: "Rejected",
   },
   // Send page
   send: {
@@ -30,6 +37,7 @@ const en = {
     sending: "Sending...",
     sent: "Sent!",
     sendingTo: "Sending to",
+    files: "files",
   },
   // Devices page
   devices: {
@@ -40,6 +48,8 @@ const en = {
     noDevices: "No devices found",
     noDevicesHint: "Make sure other devices are running QuickShare on the same network",
     online: "Online",
+    connected: "Connected to server",
+    disconnected: "Disconnected from server",
   },
   // Settings page
   settings: {

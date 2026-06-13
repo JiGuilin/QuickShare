@@ -31,11 +31,12 @@ async fn handle_socket(state: AppState, socket: WebSocket) {
     }
     info!("WebSocket client connected: {}", client_id);
 
-    // Send hello with current device info
+    // Send hello with current device info and known peers
     let device = state.get_device_info().await;
+    let peers: Vec<DeviceInfo> = state.peers.lock().await.values().cloned().collect();
     let hello_msg = WsMessage::Hello {
         device: device.clone(),
-        peers: vec![],
+        peers,
     };
     let serialized = serde_json::to_string(&hello_msg).unwrap();
     if sender.send(Message::Text(serialized.into())).await.is_err() {

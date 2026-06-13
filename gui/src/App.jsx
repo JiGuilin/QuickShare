@@ -1,8 +1,9 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import {
   Send,
   Download,
   Wifi,
+  WifiOff,
   Settings,
   Monitor,
   Smartphone,
@@ -12,13 +13,16 @@ import {
   Music,
   Archive,
   Check,
+  X,
   ChevronRight,
   RefreshCw,
   FolderOpen,
   Zap,
   Globe,
+  Upload,
 } from "lucide-react";
 import { useI18n, availableLocales } from "./i18n";
+import { useQuickShare } from "./hooks/useWebSocket";
 
 // ─── API helpers ─────────────────────────────────────────────
 const API_BASE = "http://localhost:53318";
@@ -37,13 +41,14 @@ function DeviceIcon({ type }) {
 
 function FileIcon({ fileType }) {
   if (!fileType) return <FileText size={20} />;
-  if (["jpg", "jpeg", "png", "gif", "webp", "svg"].includes(fileType.toLowerCase()))
+  const ft = fileType.toLowerCase();
+  if (["jpg", "jpeg", "png", "gif", "webp", "svg", "image/"].some((x) => ft.includes(x)))
     return <Image size={20} className="text-green-500" />;
-  if (["mp4", "mkv", "avi", "mov"].includes(fileType.toLowerCase()))
+  if (["mp4", "mkv", "avi", "mov", "video/"].some((x) => ft.includes(x)))
     return <Film size={20} className="text-purple-500" />;
-  if (["mp3", "wav", "flac", "aac"].includes(fileType.toLowerCase()))
+  if (["mp3", "wav", "flac", "aac", "audio/"].some((x) => ft.includes(x)))
     return <Music size={20} className="text-orange-500" />;
-  if (["zip", "rar", "7z", "tar", "gz"].includes(fileType.toLowerCase()))
+  if (["zip", "rar", "7z", "tar", "gz", "application/zip", "application/x-"].some((x) => ft.includes(x)))
     return <Archive size={20} className="text-yellow-500" />;
   return <FileText size={20} className="text-gray-400" />;
 }
@@ -57,7 +62,7 @@ function formatSize(bytes) {
 
 // ─── Components ──────────────────────────────────────────────
 
-function Sidebar({ activeTab, setActiveTab }) {
+function Sidebar({ activeTab, setActiveTab, connected }) {
   const { t } = useI18n();
   const tabs = [
     { id: "receive", label: t("sidebar.receive"), icon: Download },
@@ -94,16 +99,32 @@ function Sidebar({ activeTab, setActiveTab }) {
       </nav>
       <div className="p-4 border-t border-gray-100">
         <div className="flex items-center gap-2 text-xs text-gray-400">
-          <div className="w-2 h-2 bg-green-400 rounded-full"></div>
-          {t("sidebar.online")}
+          {connected ? (
+            <>
+              <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+              {t("sidebar.online")}
+            </>
+          ) : (
+            <>
+              <div className="w-2 h-2 bg-red-400 rounded-full"></div>
+              {t("sidebar.offline") || "Offline"}
+            </>
+          )}
         </div>
       </div>
     </aside>
   );
 }
 
-function ReceiveTab({ transfers }) {
+function ReceiveTab({ transfers, onAccept, onReject }) {
   const { t } = useI18n();
+
+  const incomingTransfers = transfers.filter(
+    (tr) => tr.status === "pending" || tr.status === "receiving" || tr.status === "transferring"
+  );
+  const completedTransfers = transfers.filter(
+    (tr) => tr.status === "completed" || tr.status === "rejected"
+  );
 
   return (
     <div className="animate-fade-in">
@@ -128,8 +149,8 @@ function ReceiveTab({ transfers }) {
         </div>
       </div>
 
-      {/* Transfer list */}
-      {transfers.length === 0 ? (
+      {/* Incoming transfers */}
+      {incomingTransfers.length === 0 && completedTransfers.length === 0 ? (
         <div className="text-center py-12">
           <FolderOpen size={48} className="mx-auto text-gray-300 mb-3" />
           <p className="text-gray-400">{t("receive.noTransfers")}</p>
@@ -137,8 +158,16 @@ function ReceiveTab({ transfers }) {
         </div>
       ) : (
         <div className="space-y-3">
-          {transfers.map((t) => (
-            <TransferCard key={t.id} transfer={t} />
+          {incomingTransfers.map((tr) => (
+            <IncomingTransferCard
+              key={tr.id}
+              transfer={tr}
+              onAccept={onAccept}
+              onReject={onReject}
+            />
+          ))}
+          {completedTransfers.map((tr) => (
+            <CompletedTransferCard key={tr.id} transfer={tr} />
           ))}
         </div>
       )}
@@ -146,7 +175,7 @@ function ReceiveTab({ transfers }) {
   );
 }
 
-function TransferCard({ transfer }) {
+function IncomingTransferCard({ transfer, onAccept, onReject }) {
   const { t } = useI18n();
   const progress = transfer.totalBytes
     ? Math.round((transfer.bytesTransferred / transfer.totalBytes) * 100)
@@ -155,46 +184,121 @@ function TransferCard({ transfer }) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-4 animate-slide-in">
       <div className="flex items-center gap-3 mb-3">
-        <FileIcon fileType={transfer.files?.[0]?.fileType} />
+        <FileIcon fileType={transfer.files?.[0]?.file_type || transfer.files?.[0]?.fileType} />
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-gray-800 truncate">
-            {transfer.files?.[0]?.name || "Unknown file"}
+            {transfer.files?.length === 1
+              ? transfer.files[0].name
+              : `${transfer.files?.length} ${t("send.files") || "files"}`}
           </p>
           <p className="text-xs text-gray-400">
             {formatSize(transfer.bytesTransferred)} / {formatSize(transfer.totalBytes)}
+            {transfer.from && ` · ${t("receive.from")}: ${transfer.from.alias}`}
           </p>
         </div>
-        <span className="text-xs text-gray-400">{progress}%</span>
       </div>
-      <div className="w-full bg-gray-100 rounded-full h-1.5">
-        <div
-          className="bg-primary-500 h-1.5 rounded-full transition-all duration-300"
-          style={{ width: `${progress}%` }}
-        ></div>
-      </div>
-      <div className="flex items-center justify-between mt-2">
-        <span className="text-xs text-gray-400">{t("receive.from")}: {transfer.senderAlias || "Unknown"}</span>
-        <span className="text-xs text-green-500">{transfer.status}</span>
+
+      {transfer.status === "pending" ? (
+        <div className="flex gap-2 mt-3">
+          <button
+            onClick={() => onAccept(transfer)}
+            className="flex-1 py-2 bg-primary-500 text-white rounded-lg text-sm font-medium hover:bg-primary-600 transition-colors flex items-center justify-center gap-1"
+          >
+            <Check size={14} /> {t("receive.accept") || "Accept"}
+          </button>
+          <button
+            onClick={() => onReject(transfer)}
+            className="flex-1 py-2 bg-gray-100 text-gray-600 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors flex items-center justify-center gap-1"
+          >
+            <X size={14} /> {t("receive.reject") || "Reject"}
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className="w-full bg-gray-100 rounded-full h-1.5 mt-2">
+            <div
+              className="bg-primary-500 h-1.5 rounded-full transition-all duration-300"
+              style={{ width: `${progress}%` }}
+            ></div>
+          </div>
+          <div className="flex items-center justify-between mt-2">
+            <span className="text-xs text-gray-400">{progress}%</span>
+            <span className="text-xs text-primary-500">
+              {transfer.status === "receiving" ? (t("receive.receiving") || "Receiving...") : (t("receive.transferring") || "Transferring...")}
+            </span>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function CompletedTransferCard({ transfer }) {
+  const { t } = useI18n();
+  return (
+    <div className="bg-white rounded-xl border border-gray-100 p-4 opacity-60">
+      <div className="flex items-center gap-3">
+        {transfer.status === "completed" ? (
+          <Check size={20} className="text-green-500" />
+        ) : (
+          <X size={20} className="text-red-400" />
+        )}
+        <div className="flex-1 min-w-0">
+          <p className="text-sm text-gray-600 truncate">
+            {transfer.files?.[0]?.name || "Transfer"}
+          </p>
+        </div>
+        <span className={`text-xs ${transfer.status === "completed" ? "text-green-500" : "text-red-400"}`}>
+          {transfer.status === "completed" ? (t("receive.completed") || "Completed") : (t("receive.rejected") || "Rejected")}
+        </span>
       </div>
     </div>
   );
 }
 
-function SendTab({ devices }) {
+function SendTab({ devices, onSend, myDevice }) {
   const { t } = useI18n();
   const [selectedFiles, setSelectedFiles] = useState([]);
+  const [fileObjects, setFileObjects] = useState([]);
   const [selectedDevice, setSelectedDevice] = useState(null);
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
+  const fileInputRef = useRef(null);
+
+  const handleFileSelect = (e) => {
+    const files = Array.from(e.target.files || []);
+    setFileObjects(files);
+    setSelectedFiles(files.map((f) => f.name));
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    const files = Array.from(e.dataTransfer.files || []);
+    setFileObjects(files);
+    setSelectedFiles(files.map((f) => f.name));
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+  };
 
   const handleSend = async () => {
-    if (!selectedDevice || selectedFiles.length === 0) return;
+    if (!selectedDevice || fileObjects.length === 0) return;
     setSending(true);
-    setTimeout(() => {
-      setSending(false);
+    try {
+      await onSend(selectedDevice, fileObjects);
       setSent(true);
-      setTimeout(() => setSent(false), 3000);
-    }, 2000);
+      setTimeout(() => {
+        setSent(false);
+        setSelectedFiles([]);
+        setFileObjects([]);
+        setSelectedDevice(null);
+      }, 3000);
+    } catch (err) {
+      console.error("Send error:", err);
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -205,15 +309,31 @@ function SendTab({ devices }) {
       </div>
 
       {/* File selection */}
-      <div className="bg-white rounded-xl border-2 border-dashed border-gray-200 p-8 mb-6 text-center hover:border-primary-300 transition-colors cursor-pointer">
-        <FileText size={32} className="mx-auto text-gray-300 mb-2" />
+      <div
+        className="bg-white rounded-xl border-2 border-dashed border-gray-200 p-8 mb-6 text-center hover:border-primary-300 transition-colors cursor-pointer"
+        onClick={() => fileInputRef.current?.click()}
+        onDrop={handleDrop}
+        onDragOver={handleDragOver}
+      >
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={handleFileSelect}
+        />
+        <Upload size={32} className="mx-auto text-gray-300 mb-2" />
         <p className="text-sm text-gray-500">{t("send.dragDrop")}</p>
         {selectedFiles.length > 0 && (
-          <div className="mt-4 flex flex-wrap gap-2 justify-center">
+          <div className="mt-4 flex flex-col gap-1 max-h-40 overflow-y-auto">
             {selectedFiles.map((f, i) => (
-              <span key={i} className="px-3 py-1 bg-primary-50 text-primary-600 rounded-full text-xs font-medium">
-                {f}
-              </span>
+              <div key={i} className="flex items-center gap-2 px-3 py-1 bg-primary-50 text-primary-600 rounded-lg text-xs font-medium mx-auto">
+                <FileIcon fileType={f.split('.').pop()} />
+                <span>{f}</span>
+                <span className="text-gray-400">
+                  {fileObjects[i] ? formatSize(fileObjects[i].size) : ""}
+                </span>
+              </div>
             ))}
           </div>
         )}
@@ -224,10 +344,9 @@ function SendTab({ devices }) {
         <h3 className="text-sm font-medium text-gray-700 mb-3">{t("send.selectTarget")}</h3>
         {devices.length === 0 ? (
           <div className="bg-gray-50 rounded-lg p-4 text-center">
+            <Wifi size={24} className="mx-auto text-gray-300 mb-2" />
             <p className="text-sm text-gray-400">{t("send.noDevices")}</p>
-            <button className="mt-2 text-xs text-primary-500 hover:text-primary-600 flex items-center gap-1 mx-auto">
-              <RefreshCw size={12} /> {t("send.scanAgain")}
-            </button>
+            <p className="text-xs text-gray-300 mt-1">{t("devices.noDevicesHint")}</p>
           </div>
         ) : (
           <div className="space-y-2">
@@ -259,11 +378,11 @@ function SendTab({ devices }) {
       {/* Send button */}
       <button
         onClick={handleSend}
-        disabled={!selectedDevice || selectedFiles.length === 0 || sending}
+        disabled={!selectedDevice || fileObjects.length === 0 || sending}
         className={`w-full py-3 rounded-xl font-medium text-white transition-all ${
           sent
             ? "bg-green-500"
-            : !selectedDevice || selectedFiles.length === 0
+            : !selectedDevice || fileObjects.length === 0
             ? "bg-gray-200 text-gray-400 cursor-not-allowed"
             : sending
             ? "bg-primary-400 cursor-wait"
@@ -288,7 +407,7 @@ function SendTab({ devices }) {
   );
 }
 
-function DevicesTab({ devices, scanning, onScan }) {
+function DevicesTab({ devices, scanning, onScan, connected }) {
   const { t, tc } = useI18n();
 
   return (
@@ -308,6 +427,14 @@ function DevicesTab({ devices, scanning, onScan }) {
           <RefreshCw size={14} className={scanning ? "animate-spin" : ""} />
           {scanning ? t("devices.scanning") : t("devices.scan")}
         </button>
+      </div>
+
+      {/* Connection status */}
+      <div className={`mb-4 p-3 rounded-lg flex items-center gap-2 text-sm ${
+        connected ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600"
+      }`}>
+        {connected ? <Wifi size={16} /> : <WifiOff size={16} />}
+        {connected ? (t("devices.connected") || "Connected to server") : (t("devices.disconnected") || "Disconnected from server")}
       </div>
 
       {devices.length === 0 ? (
@@ -334,7 +461,7 @@ function DevicesTab({ devices, scanning, onScan }) {
               <div className="flex-1">
                 <p className="font-medium text-gray-800">{device.alias}</p>
                 <p className="text-xs text-gray-400">
-                  {device.ip} · {device.os || "Unknown OS"} · v{device.version}
+                  {device.ip}:{device.port} · {device.os || "Unknown OS"} · v{device.version}
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -448,27 +575,27 @@ function SettingsTab() {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("receive");
-  const [devices, setDevices] = useState([
-    { id: "1", alias: "iPhone 15", ip: "192.168.1.105", port: 53318, deviceType: "mobile", os: "iOS", version: "1.0" },
-    { id: "2", alias: "Windows PC", ip: "192.168.1.110", port: 53318, deviceType: "desktop", os: "Windows", version: "1.0" },
-    { id: "3", alias: "MacBook Pro", ip: "192.168.1.120", port: 53318, deviceType: "desktop", os: "macOS", version: "1.0" },
-  ]);
-  const [transfers, setTransfers] = useState([]);
   const [scanning, setScanning] = useState(false);
+  const { devices, transfers, connected, sendFiles, acceptTransfer, rejectTransfer, scan } = useQuickShare();
 
-  const handleScan = useCallback(() => {
+  const handleScan = useCallback(async () => {
     setScanning(true);
-    setTimeout(() => setScanning(false), 3000);
-  }, []);
+    await scan();
+    setTimeout(() => setScanning(false), 2000);
+  }, [scan]);
 
   return (
     <div className="flex h-screen bg-gray-50">
-      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
+      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} connected={connected} />
       <main className="flex-1 p-6 overflow-y-auto">
-        {activeTab === "receive" && <ReceiveTab transfers={transfers} />}
-        {activeTab === "send" && <SendTab devices={devices} />}
+        {activeTab === "receive" && (
+          <ReceiveTab transfers={transfers} onAccept={acceptTransfer} onReject={rejectTransfer} />
+        )}
+        {activeTab === "send" && (
+          <SendTab devices={devices} onSend={sendFiles} myDevice={null} />
+        )}
         {activeTab === "devices" && (
-          <DevicesTab devices={devices} scanning={scanning} onScan={handleScan} />
+          <DevicesTab devices={devices} scanning={scanning} onScan={handleScan} connected={connected} />
         )}
         {activeTab === "settings" && <SettingsTab />}
       </main>
