@@ -399,7 +399,7 @@ impl MdnsDiscovery {
 
                             if let Some(ip) = addresses.iter().next() {
                                 let device = DeviceInfo {
-                                    id: info.get_fullname().to_string(),
+                                    id: fp.clone(), // Use fingerprint as stable ID (consistent with UDP multicast)
                                     alias,
                                     ip: ip.to_string(),
                                     port,

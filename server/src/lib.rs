@@ -98,6 +98,7 @@ pub async fn run_server(port: u16, alias: String) -> Result<()> {
         .route("/api/settings", get(handler::get_settings).post(handler::update_settings))
         .route("/api/random-alias", get(handler::get_random_alias))
         .route("/api/scan", post(handler::scan_devices))
+        .route("/api/session-status/{session_id}", get(handler::session_status))
         .route("/api/ws", get(ws::ws_handler))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())

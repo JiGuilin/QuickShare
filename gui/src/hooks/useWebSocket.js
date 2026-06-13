@@ -17,9 +17,6 @@ export function useQuickShare() {
   const wsRef = useRef(null);
   const reconnectTimer = useRef(null);
 
-  // Store pending file uploads that are waiting for accept
-  const pendingUploads = useRef({});
-
   // ── connect ────────────────────────────────────────────
   const connect = useCallback(() => {
     if (wsRef.current && wsRef.current.readyState <= 1) return;
@@ -97,29 +94,17 @@ export function useQuickShare() {
       case "transfer_response": {
         const { session_id, accepted } = msg;
 
+        // This is for the LOCAL receiver's UI update
+        // When auto_accept is on, the server sends this to update the receiver's UI
         if (accepted) {
-          // The receiver accepted - check if we have a pending upload to resume
-          const pending = pendingUploads.current[session_id];
-          if (pending) {
-            // Resume the upload
-            doUpload(session_id, pending.device, pending.files, pending.transferId);
-            delete pendingUploads.current[session_id];
-          }
-
-          // Update transfer status
           setTransfers((prev) =>
             prev.map((t) =>
               t.sessionId === session_id
-                ? { ...t, status: t.status === "waiting_accept" ? "transferring" : (t.status === "pending" ? "receiving" : t.status) }
+                ? { ...t, status: t.status === "pending" ? "receiving" : t.status }
                 : t
             )
           );
         } else {
-          // Rejected
-          const pending = pendingUploads.current[session_id];
-          if (pending) {
-            delete pendingUploads.current[session_id];
-          }
           setTransfers((prev) =>
             prev.map((t) =>
               t.sessionId === session_id
@@ -328,37 +313,70 @@ export function useQuickShare() {
       }
 
       const prepareData = await prepareResp.json();
+      const sessionId = prepareData.session_id;
 
-      if (!prepareData.accepted && prepareData.session_id) {
-        // Receiver needs to confirm - store the pending upload and wait
-        pendingUploads.current[prepareData.session_id] = {
-          device,
-          files: Array.from(files),
-          transferId,
-        };
+      if (!sessionId) {
+        throw new Error("No session_id returned");
+      }
 
-        setTransfers((prev) =>
-          prev.map((t) =>
-            t.id === transferId
-              ? { ...t, status: "waiting_accept", sessionId: prepareData.session_id }
-              : t
-          )
-        );
-        // The upload will be resumed when we receive a WS transfer_response with accepted: true
+      // Update transfer with session ID
+      setTransfers((prev) =>
+        prev.map((t) =>
+          t.id === transferId ? { ...t, sessionId } : t
+        )
+      );
+
+      if (prepareData.accepted) {
+        // Auto-accepted - upload immediately
+        await doUpload(sessionId, device, Array.from(files), transferId);
         return;
       }
 
-      if (!prepareData.accepted) {
+      // Receiver needs to confirm - poll the remote device for session status
+      setTransfers((prev) =>
+        prev.map((t) =>
+          t.id === transferId ? { ...t, status: "waiting_accept" } : t
+        )
+      );
+
+      // Poll the remote device's session-status endpoint
+      const maxPolls = 120; // 2 minutes max (1s interval)
+      let accepted = false;
+      for (let i = 0; i < maxPolls; i++) {
+        await new Promise((r) => setTimeout(r, 1000));
+
+        try {
+          const statusResp = await fetch(`${base}/api/session-status/${sessionId}`);
+          if (statusResp.ok) {
+            const statusData = await statusResp.json();
+            if (statusData.status === "accepted") {
+              accepted = true;
+              break;
+            } else if (statusData.status === "cancelled") {
+              setTransfers((prev) =>
+                prev.map((t) =>
+                  t.id === transferId ? { ...t, status: "rejected" } : t
+                )
+              );
+              return;
+            }
+          }
+        } catch (e) {
+          // Network error, continue polling
+        }
+      }
+
+      if (!accepted) {
         setTransfers((prev) =>
           prev.map((t) =>
-            t.id === transferId ? { ...t, status: "rejected" } : t
+            t.id === transferId ? { ...t, status: "error", error: "Timed out waiting for acceptance" } : t
           )
         );
         return;
       }
 
-      // Auto-accepted - upload immediately
-      await doUpload(prepareData.session_id, device, Array.from(files), transferId);
+      // Accepted - start upload
+      await doUpload(sessionId, device, Array.from(files), transferId);
     } catch (err) {
       console.error("Send failed:", err);
       setTransfers((prev) =>

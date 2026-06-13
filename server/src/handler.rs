@@ -155,6 +155,31 @@ pub async fn reject_transfer(
     Ok(StatusCode::OK)
 }
 
+/// GET /api/session-status - Check the status of a transfer session
+/// Used by the sender to poll whether the receiver has accepted/rejected
+pub async fn session_status(
+    State(state): State<AppState>,
+    axum::extract::Path(session_id): axum::extract::Path<String>,
+) -> Result<Json<quickshare_core::protocol::SessionStatusResponse>, StatusCode> {
+    let sessions = state.sessions.lock().await;
+    if let Some(session) = sessions.get(&session_id) {
+        let status_str = match session.status {
+            TransferStatus::Pending => "pending",
+            TransferStatus::Accepted => "accepted",
+            TransferStatus::InProgress => "in_progress",
+            TransferStatus::Completed => "completed",
+            TransferStatus::Cancelled => "cancelled",
+            TransferStatus::Failed(_) => "failed",
+        };
+        Ok(Json(quickshare_core::protocol::SessionStatusResponse {
+            session_id: session_id.clone(),
+            status: status_str.to_string(),
+        }))
+    } else {
+        Err(StatusCode::NOT_FOUND)
+    }
+}
+
 /// POST /api/send - Receive file data (multipart upload) with streaming write
 /// The session_id is passed as a form field alongside the file.
 pub async fn send_file(

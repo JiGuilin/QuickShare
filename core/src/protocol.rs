@@ -38,13 +38,14 @@ impl DeviceInfo {
     }
 
     /// Create DeviceInfo with a specific fingerprint (for loading from config)
+    /// Uses fingerprint as the device ID for stable identification across restarts and discovery methods
     pub fn with_fingerprint(alias: String, port: u16, fingerprint: String) -> Self {
         let ip = crate::discovery::get_local_ip()
             .map(|ip| ip.to_string())
             .unwrap_or_default();
 
         Self {
-            id: Uuid::new_v4().to_string(),
+            id: fingerprint.clone(),
             alias,
             ip,
             port,
@@ -160,6 +161,13 @@ pub struct AcceptRequest {
 pub struct RejectRequest {
     pub session_id: String,
     pub reason: Option<String>,
+}
+
+/// Response: Session status check (for sender polling)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionStatusResponse {
+    pub session_id: String,
+    pub status: String,
 }
 
 /// File metadata
