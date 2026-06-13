@@ -4,7 +4,9 @@ A fast, secure, cross-platform LAN file transfer tool. Send files between device
 
 > Inspired by [LocalSend](https://github.com/localsend/localsend), built with Rust + Tauri.
 
-## Features
+[中文文档](./README_zh.md)
+
+## ✨ Features
 
 - 🚀 **Fast** - Direct peer-to-peer transfer over LAN, no server relay
 - 🔒 **Secure** - SHA256 file integrity verification for every transfer
@@ -16,13 +18,15 @@ A fast, secure, cross-platform LAN file transfer tool. Send files between device
 - ⚡ **Real-time Progress** - Live transfer progress via WebSocket
 - ✅ **Receive Confirmation** - Accept or reject incoming transfers
 - 💾 **Persistent Settings** - Your preferences survive app restarts
+- 🎲 **Random Alias** - Auto-generated fun device names like "Cute Mango" (inspired by LocalSend)
 - 🔄 **Auto Start** - Option to launch at system startup
 
-## Architecture
+## 🏗 Architecture
 
 ```
 quickshare/
 ├── core/          # Core protocol library (Rust)
+│   ├── alias/     # Random alias generator (adjective + fruit)
 │   ├── protocol/  # REST API protocol definitions
 │   ├── discovery/ # mDNS device discovery
 │   ├── transfer/  # File transfer logic with SHA256 verification
@@ -37,7 +41,7 @@ quickshare/
     └── src/       # React frontend
 ```
 
-## Quick Start
+## 🚀 Quick Start
 
 ### Download
 
@@ -71,7 +75,7 @@ quickshare info --target 192.168.1.105
 **Prerequisites:**
 - Rust 1.75+ and Cargo
 - Node.js 20+
-- Platform-specific dependencies (see Tauri docs)
+- Platform-specific dependencies (see [Tauri docs](https://tauri.app/start/prerequisites/))
 
 ```bash
 # Clone the repository
@@ -85,7 +89,7 @@ cargo build --release -p quickshare-cli
 cd gui && npm install && npm run tauri build
 ```
 
-## Protocol
+## 📡 Protocol
 
 QuickShare uses a simple REST API protocol over HTTP with WebSocket for real-time updates:
 
@@ -99,6 +103,7 @@ QuickShare uses a simple REST API protocol over HTTP with WebSocket for real-tim
 | `/api/send` | POST | Upload file data (multipart with streaming) |
 | `/api/cancel` | POST | Cancel a transfer session |
 | `/api/settings` | GET/POST | Get or update settings (persisted) |
+| `/api/random-alias` | GET | Generate a random device alias (`?locale=en\|zh`) |
 | `/api/ws` | WebSocket | Real-time notifications, progress, discovery |
 
 ### Transfer Flow
@@ -111,13 +116,45 @@ QuickShare uses a simple REST API protocol over HTTP with WebSocket for real-tim
 6. **Verify**: Server verifies file integrity using SHA256 checksum
 7. **Complete**: Both parties receive completion notification
 
-## Configuration
+### Random Alias
+
+On first launch, QuickShare automatically generates a fun device name using an **adjective + fruit** combination, just like LocalSend:
+
+- 🇺🇸 English: `"Cute Mango"`, `"Fast Lemon"`, `"Smart Pineapple"` … (988 combinations)
+- 🇨🇳 Chinese: `"可爱的芒果"`, `"快速的柠檬"`, `"聪明的菠萝"` … (988 combinations)
+
+You can also:
+- Click the **⚡ Random Alias** button in Settings to regenerate
+- Click the **🖥️ System Name** button to use your computer's hostname
+- Manually type any name you like
+
+## ⚙️ Configuration
 
 Settings are persisted in:
 - **macOS**: `~/Library/Application Support/QuickShare/settings.json`
 - **Windows**: `%APPDATA%\QuickShare\settings.json`
 - **Linux**: `~/.config/QuickShare/settings.json`
 
-## License
+Example `settings.json`:
+```json
+{
+  "alias": "Cute Mango",
+  "download_dir": "/Users/john/Downloads/QuickShare",
+  "auto_accept": false,
+  "fingerprint": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+}
+```
+
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## 📄 License
 
 MIT
