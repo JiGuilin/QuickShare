@@ -13,6 +13,8 @@ pub struct PersistentSettings {
     pub download_dir: String,
     pub auto_accept: bool,
     pub fingerprint: String,
+    #[serde(default)]
+    pub locale: Option<String>,
 }
 
 impl Default for PersistentSettings {
@@ -32,6 +34,7 @@ impl Default for PersistentSettings {
             download_dir,
             auto_accept: false,
             fingerprint,
+            locale: Some(locale),
         }
     }
 }
@@ -95,8 +98,16 @@ fn load_settings() -> PersistentSettings {
         match std::fs::read_to_string(&path) {
             Ok(content) => {
                 match serde_json::from_str::<PersistentSettings>(&content) {
-                    Ok(settings) => {
+                    Ok(mut settings) => {
                         info!("Loaded settings from {:?}", path);
+                        // If locale is missing (old config), regenerate alias based on system locale
+                        if settings.locale.is_none() {
+                            let locale = detect_system_locale();
+                            info!("Old config without locale detected, regenerating alias for locale: {}", locale);
+                            settings.alias = quickshare_core::alias::generate_random_alias(&locale);
+                            settings.locale = Some(locale);
+                            save_settings(&settings);
+                        }
                         return settings;
                     }
                     Err(e) => {
@@ -239,11 +250,28 @@ impl AppState {
 
     /// Persist current settings to disk
     pub async fn persist_settings(&self) {
+        // Determine locale: use the stored one, or detect from system
+        let locale = {
+            let sessions_dir = dirs::config_dir()
+                .unwrap_or_else(|| std::path::PathBuf::from("."))
+                .join("QuickShare")
+                .join("settings.json");
+            // Try to read locale from existing config
+            if let Ok(content) = std::fs::read_to_string(&sessions_dir) {
+                serde_json::from_str::<serde_json::Value>(&content)
+                    .ok()
+                    .and_then(|v| v.get("locale").and_then(|l| l.as_str()).map(|s| s.to_string()))
+            } else {
+                None
+            }
+        };
+
         let settings = PersistentSettings {
             alias: self.alias.lock().await.clone(),
             download_dir: self.receive_dir.lock().await.clone(),
             auto_accept: *self.auto_accept.lock().await,
             fingerprint: self.fingerprint.clone(),
+            locale,
         };
         // Save in a blocking task to avoid holding locks across await
         let _ = tokio::task::spawn_blocking(move || {

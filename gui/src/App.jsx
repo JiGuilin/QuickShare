@@ -825,6 +825,11 @@ export default function App() {
     scan, updateSettings,
   } = useQuickShare();
 
+  // Filter out local device from the device list
+  const otherDevices = myDevice
+    ? devices.filter((d) => d.id !== myDevice.id)
+    : devices;
+
   const handleScan = useCallback(async () => {
     setScanning(true);
     await scan();
@@ -840,10 +845,10 @@ export default function App() {
           <ReceiveTab transfers={transfers} onAccept={acceptTransfer} onReject={rejectTransfer} />
         )}
         {activeTab === "send" && (
-          <SendTab devices={devices} onSend={sendFiles} myDevice={null} transfers={transfers} />
+          <SendTab devices={otherDevices} onSend={sendFiles} myDevice={null} transfers={transfers} />
         )}
         {activeTab === "devices" && (
-          <DevicesTab devices={devices} scanning={scanning} onScan={handleScan} connected={connected} />
+          <DevicesTab devices={otherDevices} scanning={scanning} onScan={handleScan} connected={connected} />
         )}
         {activeTab === "settings" && (
           <SettingsTab settings={settings} onUpdateSettings={updateSettings} />
