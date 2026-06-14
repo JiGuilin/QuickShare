@@ -18,14 +18,17 @@ use state::AppState;
 pub use state::AppState as SharedAppState;
 
 pub async fn run_server(port: u16, alias: String) -> Result<()> {
-    let state = AppState::new(alias.clone(), port);
+    let state = AppState::new(alias, port);
     let port = if port == 0 { DEFAULT_PORT } else { port };
 
-    // Get our fingerprint from the persistent settings
+    // Get our fingerprint and alias from the persistent settings
     let my_fingerprint = state.fingerprint.clone();
+    let my_alias = state.alias.lock().await.clone();
+
+    info!("Device alias: {}", my_alias);
 
     // Create discovery service (UDP multicast + mDNS)
-    let discovery = match DiscoveryService::new(alias.clone(), port, my_fingerprint) {
+    let discovery = match DiscoveryService::new(my_alias, port, my_fingerprint) {
         Ok(d) => {
             if let Err(e) = d.register() {
                 info!("Warning: Discovery registration failed: {}", e);
@@ -118,7 +121,6 @@ pub async fn run_server(port: u16, alias: String) -> Result<()> {
     let addr = format!("0.0.0.0:{}", port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     info!("QuickShare server listening on {}", addr);
-    info!("Device alias: {}", alias);
 
     axum::serve(listener, app).await?;
 
