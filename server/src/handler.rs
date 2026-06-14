@@ -74,7 +74,14 @@ pub async fn prepare_send(
         .insert(session_id.clone(), session);
 
     if auto_accept {
-        // Auto-accept: notify WS clients and return accepted
+        // Auto-accept: first push transfer_request so the frontend creates the transfer record,
+        // then push transfer_response to mark it as accepted/receiving.
+        notify_ws(&state, &WsMessage::TransferRequest {
+            session_id: session_id.clone(),
+            from: req.sender.clone(),
+            files: req.files.clone(),
+        }).await;
+
         notify_ws(&state, &WsMessage::TransferResponse {
             session_id: session_id.clone(),
             accepted: true,
