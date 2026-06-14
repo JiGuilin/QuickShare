@@ -285,6 +285,7 @@ function SendTab({ devices, onSend, myDevice, transfers }) {
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [fileObjects, setFileObjects] = useState([]);
   const [selectedDevice, setSelectedDevice] = useState(null);
+  const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef(null);
 
   // Get outgoing transfers for this tab
@@ -297,6 +298,71 @@ function SendTab({ devices, onSend, myDevice, transfers }) {
   );
   const sending = activeOutgoing.length > 0;
 
+  // Listen for Tauri drag-drop events
+  useEffect(() => {
+    if (!window.__TAURI__) return;
+
+    let unlistenDrop, unlistenEnter, unlistenLeave;
+
+    const setup = async () => {
+      // Dynamic import Tauri APIs inside effect to ensure availability
+      const [eventMod, coreMod] = await Promise.all([
+        import("@tauri-apps/api/event"),
+        import("@tauri-apps/api/core"),
+      ]);
+      const listen = eventMod.listen;
+      const convertFileSrc = coreMod.convertFileSrc;
+
+      // Helper to read a local file path into a File object
+      const readPath = async (filePath) => {
+        try {
+          const assetUrl = convertFileSrc(filePath);
+          const response = await fetch(assetUrl);
+          if (response.ok) {
+            const blob = await response.blob();
+            const name = filePath.split(/[/\\]/).pop();
+            return new File([blob], name, { type: blob.type || "application/octet-stream" });
+          }
+        } catch (e) {
+          console.warn("Failed to read file via asset protocol:", e);
+        }
+        return null;
+      };
+
+      const handleDropped = async (paths) => {
+        const files = (await Promise.all(paths.map(readPath))).filter(Boolean);
+        if (files.length > 0) {
+          setFileObjects((prev) => [...prev, ...files]);
+          setSelectedFiles((prev) => [...prev, ...files.map((f) => f.name)]);
+        }
+      };
+
+      unlistenDrop = await listen("tauri://drag-drop", (event) => {
+        setDragOver(false);
+        const paths = event.payload?.paths || [];
+        if (paths.length > 0) {
+          handleDropped(paths);
+        }
+      });
+
+      unlistenEnter = await listen("tauri://drag-enter", () => {
+        setDragOver(true);
+      });
+
+      unlistenLeave = await listen("tauri://drag-leave", () => {
+        setDragOver(false);
+      });
+    };
+
+    setup();
+
+    return () => {
+      if (unlistenDrop) unlistenDrop();
+      if (unlistenEnter) unlistenEnter();
+      if (unlistenLeave) unlistenLeave();
+    };
+  }, []);
+
   const handleFileSelect = (e) => {
     const files = Array.from(e.target.files || []);
     setFileObjects(files);
@@ -305,13 +371,26 @@ function SendTab({ devices, onSend, myDevice, transfers }) {
 
   const handleDrop = (e) => {
     e.preventDefault();
-    const files = Array.from(e.dataTransfer.files || []);
-    setFileObjects(files);
-    setSelectedFiles(files.map((f) => f.name));
+    e.stopPropagation();
+    setDragOver(false);
+    // In Tauri, the drag-drop is handled by Tauri events above
+    // This handler works for browser (non-Tauri) mode
+    if (!window.__TAURI__) {
+      const files = Array.from(e.dataTransfer.files || []);
+      setFileObjects(files);
+      setSelectedFiles(files.map((f) => f.name));
+    }
   };
 
   const handleDragOver = (e) => {
     e.preventDefault();
+    e.stopPropagation();
+    setDragOver(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    setDragOver(false);
   };
 
   const handleSend = async () => {
@@ -392,10 +471,15 @@ function SendTab({ devices, onSend, myDevice, transfers }) {
       )}
 
       <div
-        className="bg-white rounded-xl border-2 border-dashed border-gray-200 p-8 mb-6 text-center hover:border-primary-300 transition-colors cursor-pointer"
+        className={`bg-white rounded-xl border-2 border-dashed p-8 mb-6 text-center transition-colors cursor-pointer ${
+          dragOver
+            ? "border-primary-400 bg-primary-50"
+            : "border-gray-200 hover:border-primary-300"
+        }`}
         onClick={() => fileInputRef.current?.click()}
         onDrop={handleDrop}
         onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
       >
         <input
           ref={fileInputRef}
