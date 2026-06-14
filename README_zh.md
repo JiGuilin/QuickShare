@@ -18,11 +18,32 @@
 - 🌐 **多语言** - English / 简体中文
 - ⚡ **实时进度** - 通过 WebSocket 实时显示传输进度与速度
 - ✅ **接收确认** - 可接受或拒绝传入的文件传输
+- 🤖 **自动接收** - 开启自动接收模式，无需确认即可接收文件
 - 💾 **设置持久化** - 您的偏好设置在重启后保留
 - 🎲 **随机别名** - 自动生成有趣的设备名，如「可爱的芒果」（灵感来自 LocalSend）
 - 🔄 **开机自启** - 可选开机自动启动
 - 🔍 **网络扫描** - 一键触发设备发现
 - 🔗 **HTTP 轮询** - 可靠的跨设备会话状态查询（不会错过 WebSocket 消息）
+- 🖥️ **本机设备信息** - 在接收页查看自己的设备别名、IP 和端口
+- 📂 **打开目录** - 从传输历史记录中一键打开下载目录
+- 📋 **发送记录** - 查看所有已完成的发送记录及文件详情
+- 📋 **接收记录** - 查看所有已完成的接收记录，支持展开查看多文件
+- 🗑️ **移除文件** - 发送前可从文件队列中移除单个文件
+- 🖱️ **拖拽发送** - 直接拖拽文件到发送区域（已优化大文件拖拽速度）
+- 🎨 **智能界面** - 选择文件后自动隐藏上传图标和提示文本
+
+## 🆕 v0.3.0 更新内容
+
+- 🖥️ **本机设备卡片** - 接收页面显示设备别名、IP 和端口（LocalSend 风格）
+- 🤖 **自动接收开关** - 在接收页面快速切换自动接收模式
+- 📂 **打开下载目录** - 从接收历史中一键打开下载目录
+- 📋 **发送记录** - 新增发送记录面板，点击时钟图标查看所有已完成的发送
+- 📋 **接收记录** - 改进接收历史，支持展开查看多文件详情
+- 🗑️ **移除文件** - 发送队列中增加 ✕ 按钮移除单个文件
+- 🖱️ **优化拖拽体验** - 大文件拖拽秒级响应（拖拽时只读取元信息，发送时才读取内容）
+- 🎨 **智能文件区域** - 选择文件后自动隐藏上传图标，显示"可继续添加"提示
+- 🔧 **Windows 修复** - 修复中文别名显示、隐藏控制台窗口、打开目录功能
+- 🔧 **WebSocket 稳定性** - 修复 React StrictMode 竞态条件导致的事件监听器重复注册
 
 ## 🏗 项目架构
 
@@ -50,12 +71,12 @@ quickshare/
 
 从 [Releases 页面](https://github.com/JiGuilin/QuickShare/releases) 下载最新版本：
 
-|| 平台 | 文件 |
-||------|------|
-|| macOS (Apple Silicon) | `QuickShare_x.x.x_aarch64.dmg` |
-|| macOS (Intel) | `QuickShare_x.x.x_x64.dmg` |
-|| Windows | `QuickShare_x.x.x_x64-setup.exe` |
-|| Linux | `QuickShare_x.x.x_amd64.deb` |
+| 平台 | 文件 |
+|------|------|
+| macOS (Apple Silicon) | `QuickShare_0.3.0_aarch64.dmg` |
+| macOS (Intel) | `QuickShare_0.3.0_x64.dmg` |
+| Windows | `QuickShare_0.3.0_x64-setup.exe` |
+| Linux | `QuickShare_0.3.0_amd64.deb` |
 
 ### 命令行使用
 
@@ -96,21 +117,21 @@ cd gui && npm install && npm run tauri build
 
 QuickShare 使用基于 HTTP 的 REST API 协议，配合 WebSocket 实现实时更新：
 
-|| 端点 | 方法 | 说明 |
-||------|------|------|
-|| `/api/info` | GET | 获取设备信息 |
-|| `/api/devices` | GET | 列出已发现的设备 |
-|| `/api/prepare-send` | POST | 准备接收文件（含确认/拒绝流程） |
-|| `/api/accept` | POST | 接受传入的传输 |
-|| `/api/reject` | POST | 拒绝传入的传输 |
-|| `/api/send` | POST | 上传文件数据（multipart 流式传输，适用于小文件 <8MB） |
-|| `/api/upload-chunk` | POST | 上传文件分片（适用于大文件 ≥8MB） |
-|| `/api/cancel` | POST | 取消传输会话 |
-|| `/api/session-status/{id}` | GET | 查询会话状态（发送方轮询） |
-|| `/api/settings` | GET/POST | 获取或更新设置（持久化） |
-|| `/api/random-alias` | GET | 生成随机设备别名（`?locale=en|zh`） |
-|| `/api/scan` | POST | 触发网络扫描（发送多播公告） |
-|| `/api/ws` | WebSocket | 实时通知、进度、设备发现 |
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/info` | GET | 获取设备信息 |
+| `/api/devices` | GET | 列出已发现的设备 |
+| `/api/prepare-send` | POST | 准备接收文件（含确认/拒绝流程） |
+| `/api/accept` | POST | 接受传入的传输 |
+| `/api/reject` | POST | 拒绝传入的传输 |
+| `/api/send` | POST | 上传文件数据（multipart 流式传输，适用于小文件 <8MB） |
+| `/api/upload-chunk` | POST | 上传文件分片（适用于大文件 ≥8MB） |
+| `/api/cancel` | POST | 取消传输会话 |
+| `/api/session-status/{id}` | GET | 查询会话状态（发送方轮询） |
+| `/api/settings` | GET/POST | 获取或更新设置（持久化） |
+| `/api/random-alias` | GET | 生成随机设备别名（`?locale=en|zh`） |
+| `/api/scan` | POST | 触发网络扫描（发送多播公告） |
+| `/api/ws` | WebSocket | 实时通知、进度、设备发现 |
 
 ### 设备发现
 

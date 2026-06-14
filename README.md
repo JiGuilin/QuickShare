@@ -18,11 +18,32 @@ A fast, secure, cross-platform LAN file transfer tool. Send files between device
 - 🌐 **Multi-language** - English / 简体中文
 - ⚡ **Real-time Progress** - Live transfer progress with speed display via WebSocket
 - ✅ **Receive Confirmation** - Accept or reject incoming transfers
+- 🤖 **Auto-accept** - Toggle auto-accept mode to receive files without confirmation
 - 💾 **Persistent Settings** - Your preferences survive app restarts
 - 🎲 **Random Alias** - Auto-generated fun device names like "Cute Mango" (inspired by LocalSend)
 - 🔄 **Auto Start** - Option to launch at system startup
 - 🔍 **Network Scan** - Trigger on-demand device discovery with one click
 - 🔗 **HTTP Polling** - Reliable cross-device session status checking (no missed WebSocket messages)
+- 🖥️ **This Device Info** - View your own device alias, IP and port in the receive tab
+- 📂 **Open Directory** - One-click to open the download folder from transfer history
+- 📋 **Send History** - View all completed send transfers with file details
+- 📋 **Receive History** - View all completed receive transfers with expandable file list
+- 🗑️ **Remove Files** - Remove individual files from the send queue before sending
+- 🖱️ **Drag & Drop** - Drag files directly to the send area (optimized for large files)
+- 🎨 **Smart UI** - Upload icon and hint text auto-hide when files are selected
+
+## 🆕 What's New in v0.3.0
+
+- 🖥️ **This Device Card** - Receive tab now shows your device alias, IP and port (LocalSend style)
+- 🤖 **Auto-accept Toggle** - Quick toggle auto-accept mode right from the receive tab
+- 📂 **Open Download Folder** - Click to open the download directory from receive history
+- 📋 **Send History** - New send history panel with clock icon button, view all completed sends
+- 📋 **Receive History** - Improved receive history with expandable multi-file details
+- 🗑️ **Remove Files** - Remove individual files from the send queue with ✕ button
+- 🖱️ **Optimized Drag & Drop** - Large file drag & drop is now instant (only reads metadata on drop, reads content on send)
+- 🎨 **Smart File Area** - Upload icon and hint text auto-hide when files are selected, shows "add more" hint instead
+- 🔧 **Windows Fixes** - Fixed Chinese alias display, hidden console window, open directory works on Windows
+- 🔧 **WebSocket Stability** - Fixed React StrictMode race condition causing duplicate event listeners
 
 ## 🏗 Architecture
 
@@ -50,12 +71,12 @@ quickshare/
 
 Download the latest release from the [Releases page](https://github.com/JiGuilin/QuickShare/releases):
 
-|| Platform | File |
-||----------|------|
-|| macOS (Apple Silicon) | `QuickShare_x.x.x_aarch64.dmg` |
-|| macOS (Intel) | `QuickShare_x.x.x_x64.dmg` |
-|| Windows | `QuickShare_x.x.x_x64-setup.exe` |
-|| Linux | `QuickShare_x.x.x_amd64.deb` |
+| Platform | File |
+|----------|------|
+| macOS (Apple Silicon) | `QuickShare_0.3.0_aarch64.dmg` |
+| macOS (Intel) | `QuickShare_0.3.0_x64.dmg` |
+| Windows | `QuickShare_0.3.0_x64-setup.exe` |
+| Linux | `QuickShare_0.3.0_amd64.deb` |
 
 ### CLI Usage
 
@@ -96,21 +117,21 @@ cd gui && npm install && npm run tauri build
 
 QuickShare uses a simple REST API protocol over HTTP with WebSocket for real-time updates:
 
-|| Endpoint | Method | Description |
-||----------|--------|-------------|
-|| `/api/info` | GET | Get device information |
-|| `/api/devices` | GET | List discovered peer devices |
-|| `/api/prepare-send` | POST | Prepare to receive files (with accept/reject flow) |
-|| `/api/accept` | POST | Accept an incoming transfer |
-|| `/api/reject` | POST | Reject an incoming transfer |
-|| `/api/send` | POST | Upload file data (multipart with streaming, for small files <8MB) |
-|| `/api/upload-chunk` | POST | Upload a file chunk (for large files ≥8MB) |
-|| `/api/cancel` | POST | Cancel a transfer session |
-|| `/api/session-status/{id}` | GET | Query session status (for sender polling) |
-|| `/api/settings` | GET/POST | Get or update settings (persisted) |
-|| `/api/random-alias` | GET | Generate a random device alias (`?locale=en|zh`) |
-|| `/api/scan` | POST | Trigger network scan (sends multicast announcement) |
-|| `/api/ws` | WebSocket | Real-time notifications, progress, discovery |
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/info` | GET | Get device information |
+| `/api/devices` | GET | List discovered peer devices |
+| `/api/prepare-send` | POST | Prepare to receive files (with accept/reject flow) |
+| `/api/accept` | POST | Accept an incoming transfer |
+| `/api/reject` | POST | Reject an incoming transfer |
+| `/api/send` | POST | Upload file data (multipart with streaming, for small files <8MB) |
+| `/api/upload-chunk` | POST | Upload a file chunk (for large files ≥8MB) |
+| `/api/cancel` | POST | Cancel a transfer session |
+| `/api/session-status/{id}` | GET | Query session status (for sender polling) |
+| `/api/settings` | GET/POST | Get or update settings (persisted) |
+| `/api/random-alias` | GET | Generate a random device alias (`?locale=en|zh`) |
+| `/api/scan` | POST | Trigger network scan (sends multicast announcement) |
+| `/api/ws` | WebSocket | Real-time notifications, progress, discovery |
 
 ### Device Discovery
 
