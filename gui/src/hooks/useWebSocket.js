@@ -24,12 +24,15 @@ export function useQuickShare() {
 
     const ws = new WebSocket(WS_URL);
     wsRef.current = ws;
+    console.log("[WS] Connecting to", WS_URL, "readyState:", ws.readyState);
 
     ws.onopen = () => {
+      console.log("[WS] Connected successfully");
       setConnected(true);
     };
 
     ws.onclose = () => {
+      console.log("[WS] Connection closed");
       setConnected(false);
       // Only clear ref if this is still the current ws
       if (wsRef.current === ws) {
@@ -39,7 +42,7 @@ export function useQuickShare() {
     };
 
     ws.onerror = (e) => {
-      console.warn("WebSocket error:", e);
+      console.warn("[WS] Connection error - server may not be ready yet, will retry...", e);
       // Don't call ws.close() here - onclose will fire automatically after onerror
       // and we don't want to trigger a double close / race condition
     };
@@ -291,10 +294,14 @@ export function useQuickShare() {
       })
       .catch(() => {});
 
-    connect();
+    // Small delay to ensure server is ready (Tauri spawns it async)
+    const initTimer = setTimeout(() => {
+      if (!cancelled) connect();
+    }, 500);
 
     return () => {
       cancelled = true;
+      clearTimeout(initTimer);
       clearTimeout(reconnectTimer.current);
       if (wsRef.current) {
         wsRef.current.close();
