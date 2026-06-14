@@ -10,6 +10,7 @@
     "beforeBuildCommand": "npm run build"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "title": "QuickShare - LAN File Transfer",
