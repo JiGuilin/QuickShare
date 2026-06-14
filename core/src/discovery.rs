@@ -262,7 +262,11 @@ fn get_local_interfaces() -> Vec<Ipv4Addr> {
     #[cfg(target_os = "windows")]
     {
         // On Windows, use ipconfig output as a fallback
-        if let Ok(output) = std::process::Command::new("ipconfig").output() {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        if let Ok(output) = std::process::Command::new("ipconfig")
+            .creation_flags(CREATE_NO_WINDOW)
+            .output() {
             let stdout = String::from_utf8_lossy(&output.stdout);
             for line in stdout.lines() {
                 if line.contains("IPv4") {

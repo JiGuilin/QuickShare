@@ -71,8 +71,11 @@ fn detect_system_locale() -> String {
     #[cfg(target_os = "windows")]
     {
         // Use PowerShell to get the system UI language (e.g. "zh-CN", "en-US")
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
         if let Ok(output) = std::process::Command::new("powershell")
             .args(["-NoProfile", "-Command", "[System.Globalization.CultureInfo]::CurrentUICulture.Name"])
+            .creation_flags(CREATE_NO_WINDOW)
             .output()
         {
             let stdout = String::from_utf8_lossy(&output.stdout).trim().to_lowercase();
