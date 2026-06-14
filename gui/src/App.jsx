@@ -444,6 +444,61 @@ function CompletedTransferCard({ transfer, downloadDir }) {
   );
 }
 
+function CompletedSendCard({ transfer }) {
+  const { t } = useI18n();
+  const [expanded, setExpanded] = useState(false);
+  const multiFile = (transfer.files?.length || 0) > 1;
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-100 p-4 opacity-60 hover:opacity-80 transition-opacity">
+      <div className="flex items-center gap-3">
+        {transfer.status === "completed" ? (
+          <Check size={20} className="text-green-500 flex-shrink-0" />
+        ) : (
+          <AlertCircle size={20} className="text-red-400 flex-shrink-0" />
+        )}
+        <div className="flex-1 min-w-0">
+          <p className="text-sm text-gray-600 truncate">
+            {transfer.files?.[0]?.name || "Transfer"}
+          </p>
+          <p className="text-xs text-gray-400">
+            → {transfer.targetDevice?.alias || "Unknown"}
+          </p>
+          {multiFile && (
+            <button
+              onClick={() => setExpanded(!expanded)}
+              className="text-xs text-primary-500 hover:text-primary-600 transition-colors"
+            >
+              {expanded
+                ? (t("receive.collapse") || "Collapse")
+                : `+${transfer.files.length - 1} ${t("receive.fileCount")}`}
+            </button>
+          )}
+        </div>
+        <span className={`text-xs flex-shrink-0 ${
+          transfer.status === "completed" ? "text-green-500" : "text-red-400"
+        }`}>
+          {transfer.status === "completed" ? (t("receive.completed") || "Completed")
+            : (t("receive.error") || "Error")}
+        </span>
+      </div>
+      {expanded && multiFile && (
+        <div className="mt-2 ml-8 space-y-1 border-t border-gray-100 pt-2">
+          {transfer.files.slice(1).map((file, i) => (
+            <div key={i} className="flex items-center gap-2 text-xs">
+              <FileIcon fileType={file.file_type || file.name?.split('.').pop()} />
+              <span className="text-gray-600 truncate">{file.name}</span>
+              {file.size && (
+                <span className="text-gray-400 flex-shrink-0">{formatSize(file.size)}</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SendTab({ devices, onSend, myDevice, transfers }) {
   const { t } = useI18n();
   const [selectedFiles, setSelectedFiles] = useState([]);
@@ -463,6 +518,7 @@ function SendTab({ devices, onSend, myDevice, transfers }) {
     (tr) => tr.status === "completed" || tr.status === "error"
   );
   const sending = activeOutgoing.length > 0;
+  const [showSendHistory, setShowSendHistory] = useState(false);
 
   // Listen for Tauri drag-drop events
   useEffect(() => {
@@ -637,8 +693,28 @@ function SendTab({ devices, onSend, myDevice, transfers }) {
   return (
     <div className="animate-fade-in">
       <div className="mb-6">
-        <h2 className="text-xl font-semibold text-gray-800">{t("send.title")}</h2>
-        <p className="text-sm text-gray-500 mt-1">{t("send.subtitle")}</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-xl font-semibold text-gray-800">{t("send.title")}</h2>
+            <p className="text-sm text-gray-500 mt-1">{t("send.subtitle")}</p>
+          </div>
+          <button
+            onClick={() => setShowSendHistory(!showSendHistory)}
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+              showSendHistory
+                ? "bg-primary-50 text-primary-600 border border-primary-300"
+                : "text-gray-500 hover:bg-gray-50 border border-transparent"
+            }`}
+          >
+            <Clock size={16} />
+            {t("send.history")}
+            {completedOutgoing.length > 0 && (
+              <span className={`px-1.5 py-0.5 rounded-full text-xs font-bold ${
+                showSendHistory ? "bg-primary-200 text-primary-700" : "bg-gray-200 text-gray-500"
+              }`}>{completedOutgoing.length}</span>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* Outgoing transfer progress */}
@@ -682,20 +758,27 @@ function SendTab({ devices, onSend, myDevice, transfers }) {
               </div>
             );
           })}
-          {completedOutgoing.slice(-3).map((tr) => (
-            <div key={tr.id} className="bg-white rounded-xl border border-gray-100 p-3 opacity-60">
-              <div className="flex items-center gap-2">
-                {tr.status === "completed" ? (
-                  <Check size={16} className="text-green-500" />
-                ) : (
-                  <AlertCircle size={16} className="text-red-400" />
-                )}
-                <p className="text-xs text-gray-500 truncate">
-                  {tr.files?.[0]?.name || "Transfer"} — {tr.status === "completed" ? (t("receive.completed") || "Completed") : (t("receive.error") || "Error")}
-                </p>
-              </div>
+        </div>
+      )}
+
+      {/* Send history panel */}
+      {showSendHistory && (
+        <div className="animate-fade-in mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-gray-600">{t("send.history")}</h3>
+          </div>
+          {completedOutgoing.length === 0 ? (
+            <div className="bg-white rounded-xl border border-gray-100 p-6 text-center">
+              <Clock size={32} className="mx-auto text-gray-200 mb-2" />
+              <p className="text-sm text-gray-400">{t("send.noHistory")}</p>
             </div>
-          ))}
+          ) : (
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {completedOutgoing.map((tr) => (
+                <CompletedSendCard key={tr.id} transfer={tr} />
+              ))}
+            </div>
+          )}
         </div>
       )}
 

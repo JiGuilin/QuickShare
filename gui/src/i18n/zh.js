@@ -48,6 +48,8 @@ const zh = {
     sent: "已发送！",
     sendingTo: "正在发送至",
     files: "个文件",
+    history: "发送记录",
+    noHistory: "暂无发送记录",
   },
   devices: {
     title: "附近的设备",

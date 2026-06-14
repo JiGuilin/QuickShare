@@ -48,6 +48,8 @@ const en = {
     sent: "Sent!",
     sendingTo: "Sending to",
     files: "files",
+    history: "Send history",
+    noHistory: "No send history yet",
   },
   devices: {
     title: "Nearby Devices",
