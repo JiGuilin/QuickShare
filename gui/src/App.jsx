@@ -188,7 +188,7 @@ function ReceiveTab({ transfers, onAccept, onReject, myDevice, settings, onUpdat
       </div>
 
       {/* Auto-accept toggle & History button */}
-      <div className="flex items-center gap-3 mb-4">
+      <div className="flex items-stretch gap-3 mb-4">
         <div className="flex-1 bg-white rounded-xl border border-gray-200 px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Zap size={16} className={autoAccept ? "text-primary-500" : "text-gray-400"} />
@@ -211,7 +211,7 @@ function ReceiveTab({ transfers, onAccept, onReject, myDevice, settings, onUpdat
         </div>
         <button
           onClick={() => setShowHistory(!showHistory)}
-          className={`bg-white rounded-xl border px-4 py-3 flex items-center gap-2 text-sm font-medium transition-all ${
+          className={`bg-white rounded-xl border px-4 flex items-center gap-2 text-sm font-medium transition-all h-auto self-stretch ${
             showHistory
               ? "border-primary-300 bg-primary-50 text-primary-600"
               : "border-gray-200 text-gray-600 hover:border-gray-300"
