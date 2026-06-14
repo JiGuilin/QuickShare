@@ -36,6 +36,7 @@ const zh = {
     subtitle: "选择文件和目标设备进行发送",
     dragDrop: "拖拽文件到此处，或点击选择",
     dragDropHint: "可继续拖拽添加更多文件，或点击重新选择",
+    removeFile: "移除文件",
     selectTarget: "选择目标设备",
     noDevices: "未发现局域网内的设备",
     scanAgain: "重新扫描",

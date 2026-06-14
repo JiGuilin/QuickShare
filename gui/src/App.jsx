@@ -506,6 +506,11 @@ function SendTab({ devices, onSend, myDevice, transfers }) {
     setSelectedFiles(files.map((f) => f.name));
   };
 
+  const removeFile = (index) => {
+    setFileObjects((prev) => prev.filter((_, i) => i !== index));
+    setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const handleDrop = (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -630,20 +635,31 @@ function SendTab({ devices, onSend, myDevice, transfers }) {
           className="hidden"
           onChange={handleFileSelect}
         />
-        <Upload size={32} className="mx-auto text-gray-300 mb-2" />
-        <p className="text-sm text-gray-500">{t("send.dragDrop")}</p>
-        {selectedFiles.length > 0 && (
-          <div className="mt-4 flex flex-col gap-1 max-h-40 overflow-y-auto">
+        {selectedFiles.length > 0 ? (
+          <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
             {selectedFiles.map((f, i) => (
-              <div key={i} className="flex items-center gap-2 px-3 py-1 bg-primary-50 text-primary-600 rounded-lg text-xs font-medium mx-auto">
+              <div key={i} className="flex items-center gap-2 px-3 py-1 bg-primary-50 text-primary-600 rounded-lg text-xs font-medium mx-auto group">
                 <FileIcon fileType={f.split('.').pop()} />
-                <span>{f}</span>
-                <span className="text-gray-400">
+                <span className="truncate max-w-48">{f}</span>
+                <span className="text-gray-400 flex-shrink-0">
                   {fileObjects[i] ? formatSize(fileObjects[i].size) : ""}
                 </span>
+                <button
+                  onClick={(e) => { e.stopPropagation(); removeFile(i); }}
+                  className="ml-1 w-4 h-4 rounded-full bg-gray-200 hover:bg-red-400 text-gray-400 hover:text-white flex items-center justify-center transition-colors flex-shrink-0"
+                  title={t("send.removeFile") || "Remove"}
+                >
+                  <X size={10} />
+                </button>
               </div>
             ))}
+            <p className="text-xs text-gray-400 mt-2">{t("send.dragDropHint")}</p>
           </div>
+        ) : (
+          <>
+            <Upload size={32} className="mx-auto text-gray-300 mb-2" />
+            <p className="text-sm text-gray-500">{t("send.dragDrop")}</p>
+          </>
         )}
       </div>
 
