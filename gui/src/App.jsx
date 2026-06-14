@@ -401,82 +401,55 @@ function SendTab({ devices, onSend, myDevice, transfers }) {
 
   // Listen for Tauri drag-drop events
   useEffect(() => {
-    console.log("[DragDrop] useEffect fired, window.__TAURI__:", !!window.__TAURI__);
-
     if (!window.__TAURI__) return;
 
     const unlistenFns = [];
 
     const setup = async () => {
-      console.log("[DragDrop] setup() started");
       try {
-        // Dynamic import Tauri APIs inside effect to ensure availability
-        const [eventMod, coreMod] = await Promise.all([
+        const [eventMod, fsMod] = await Promise.all([
           import("@tauri-apps/api/event"),
-          import("@tauri-apps/api/core"),
+          import("@tauri-apps/plugin-fs"),
         ]);
         const listen = eventMod.listen;
-        const convertFileSrc = coreMod.convertFileSrc;
-        console.log("[DragDrop] Tauri APIs loaded, listen:", typeof listen, "convertFileSrc:", typeof convertFileSrc);
+        const readFile = fsMod.readFile;
 
-        // Helper to read a local file path into a File object via asset protocol
+        // Read a local file path into a File object using Tauri fs plugin
         const readPath = async (filePath) => {
-          console.log("[DragDrop] readPath called:", filePath);
           try {
-            const assetUrl = convertFileSrc(filePath);
-            console.log("[DragDrop] assetUrl:", assetUrl);
-            const response = await fetch(assetUrl);
-            console.log("[DragDrop] fetch response:", response.status, response.ok);
-            if (response.ok) {
-              const blob = await response.blob();
-              const name = filePath.split(/[/\\]/).pop();
-              console.log("[DragDrop] blob size:", blob.size, "type:", blob.type, "name:", name);
-              return new File([blob], name, { type: blob.type || "application/octet-stream" });
-            } else {
-              console.warn("[DragDrop] Asset protocol fetch failed:", response.status, filePath);
-            }
+            const data = await readFile(filePath);
+            const name = filePath.split(/[/\\]/).pop();
+            return new File([data], name, { type: "application/octet-stream" });
           } catch (e) {
-            console.warn("[DragDrop] Failed to read file via asset protocol:", e);
+            console.warn("[DragDrop] Failed to read file:", filePath, e);
           }
           return null;
         };
 
         const handleDropped = async (paths) => {
-          console.log("[DragDrop] handleDropped called, paths:", JSON.stringify(paths));
           const files = (await Promise.all(paths.map(readPath))).filter(Boolean);
-          console.log("[DragDrop] files read successfully:", files.length, files.map(f => f.name));
           if (files.length > 0) {
             setFileObjects((prev) => [...prev, ...files]);
             setSelectedFiles((prev) => [...prev, ...files.map((f) => f.name)]);
-            console.log("[DragDrop] state updated with", files.length, "files");
-          } else {
-            console.warn("[DragDrop] No files were successfully read from dropped paths");
           }
         };
 
         const unDrop = await listen("tauri://drag-drop", (event) => {
-          console.log("[DragDrop] tauri://drag-drop event fired!", event);
           setDragOver(false);
           const paths = event.payload?.paths || [];
-          console.log("[DragDrop] payload paths:", JSON.stringify(paths));
           if (paths.length > 0) {
             handleDropped(paths);
-          } else {
-            console.warn("[DragDrop] drag-drop event but no paths in payload:", event.payload);
           }
         });
 
-        const unEnter = await listen("tauri://drag-enter", (event) => {
-          console.log("[DragDrop] tauri://drag-enter event fired!", event);
+        const unEnter = await listen("tauri://drag-enter", () => {
           setDragOver(true);
         });
 
-        const unLeave = await listen("tauri://drag-leave", (event) => {
-          console.log("[DragDrop] tauri://drag-leave event fired!", event);
+        const unLeave = await listen("tauri://drag-leave", () => {
           setDragOver(false);
         });
 
-        console.log("[DragDrop] All listeners registered successfully");
         unlistenFns.push(unDrop, unEnter, unLeave);
       } catch (e) {
         console.error("[DragDrop] setup() failed:", e);
@@ -486,7 +459,6 @@ function SendTab({ devices, onSend, myDevice, transfers }) {
     setup();
 
     return () => {
-      console.log("[DragDrop] cleanup, removing", unlistenFns.length, "listeners");
       unlistenFns.forEach((fn) => fn());
     };
   }, []);
@@ -501,12 +473,10 @@ function SendTab({ devices, onSend, myDevice, transfers }) {
     e.preventDefault();
     e.stopPropagation();
     setDragOver(false);
-    console.log("[DragDrop] Native onDrop fired, __TAURI__:", !!window.__TAURI__, "files:", e.dataTransfer?.files?.length);
-    // In Tauri, the drag-drop is handled by Tauri events above
-    // This handler works for browser (non-Tauri) mode
+    // In Tauri, drag-drop is handled by the tauri://drag-drop event listener above.
+    // The native onDrop event also fires, but we must ignore it to avoid duplicate processing.
     if (!window.__TAURI__) {
       const files = Array.from(e.dataTransfer.files || []);
-      console.log("[DragDrop] Native drop files:", files.map(f => f.name));
       setFileObjects(files);
       setSelectedFiles(files.map((f) => f.name));
     }
@@ -515,12 +485,17 @@ function SendTab({ devices, onSend, myDevice, transfers }) {
   const handleDragOver = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    setDragOver(true);
+    // In Tauri, drag-over visual feedback is handled by tauri://drag-enter event.
+    if (!window.__TAURI__) {
+      setDragOver(true);
+    }
   };
 
   const handleDragLeave = (e) => {
     e.preventDefault();
-    setDragOver(false);
+    if (!window.__TAURI__) {
+      setDragOver(false);
+    }
   };
 
   const handleSend = async () => {
