@@ -3085,6 +3085,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-autostart",
  "tauri-plugin-dialog",
+ "tauri-plugin-fs",
  "tokio",
  "tracing",
  "tracing-subscriber",
