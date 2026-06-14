@@ -131,10 +131,12 @@ function Sidebar({ activeTab, setActiveTab, connected }) {
 function ReceiveTab({ transfers, onAccept, onReject }) {
   const { t } = useI18n();
 
-  const incomingTransfers = transfers.filter(
+  // Only show INCOMING transfers in the receive tab
+  const incomingOnly = transfers.filter((tr) => tr.direction === "incoming");
+  const incomingTransfers = incomingOnly.filter(
     (tr) => tr.status === "pending" || tr.status === "receiving" || tr.status === "transferring" || tr.status === "waiting_accept"
   );
-  const completedTransfers = transfers.filter(
+  const completedTransfers = incomingOnly.filter(
     (tr) => tr.status === "completed" || tr.status === "rejected" || tr.status === "error"
   );
 
@@ -278,14 +280,22 @@ function CompletedTransferCard({ transfer }) {
   );
 }
 
-function SendTab({ devices, onSend, myDevice }) {
+function SendTab({ devices, onSend, myDevice, transfers }) {
   const { t } = useI18n();
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [fileObjects, setFileObjects] = useState([]);
   const [selectedDevice, setSelectedDevice] = useState(null);
-  const [sending, setSending] = useState(false);
-  const [sent, setSent] = useState(false);
   const fileInputRef = useRef(null);
+
+  // Get outgoing transfers for this tab
+  const outgoingTransfers = transfers.filter((tr) => tr.direction === "outgoing");
+  const activeOutgoing = outgoingTransfers.filter(
+    (tr) => tr.status !== "completed" && tr.status !== "rejected" && tr.status !== "error"
+  );
+  const completedOutgoing = outgoingTransfers.filter(
+    (tr) => tr.status === "completed" || tr.status === "error"
+  );
+  const sending = activeOutgoing.length > 0;
 
   const handleFileSelect = (e) => {
     const files = Array.from(e.target.files || []);
@@ -306,20 +316,13 @@ function SendTab({ devices, onSend, myDevice }) {
 
   const handleSend = async () => {
     if (!selectedDevice || fileObjects.length === 0) return;
-    setSending(true);
     try {
       await onSend(selectedDevice, fileObjects);
-      setSent(true);
-      setTimeout(() => {
-        setSent(false);
-        setSelectedFiles([]);
-        setFileObjects([]);
-        setSelectedDevice(null);
-      }, 3000);
+      setSelectedFiles([]);
+      setFileObjects([]);
+      setSelectedDevice(null);
     } catch (err) {
       console.error("Send error:", err);
-    } finally {
-      setSending(false);
     }
   };
 
@@ -329,6 +332,64 @@ function SendTab({ devices, onSend, myDevice }) {
         <h2 className="text-xl font-semibold text-gray-800">{t("send.title")}</h2>
         <p className="text-sm text-gray-500 mt-1">{t("send.subtitle")}</p>
       </div>
+
+      {/* Outgoing transfer progress */}
+      {(activeOutgoing.length > 0 || completedOutgoing.length > 0) && (
+        <div className="mb-6 space-y-3">
+          {activeOutgoing.map((tr) => {
+            const progress = tr.totalBytes ? Math.round((tr.bytesTransferred / tr.totalBytes) * 100) : 0;
+            return (
+              <div key={tr.id} className="bg-white rounded-xl border border-gray-200 p-4 animate-slide-in">
+                <div className="flex items-center gap-3 mb-2">
+                  <Send size={16} className="text-primary-500" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800 truncate">
+                      {tr.files?.length === 1
+                        ? tr.files[0].name
+                        : `${tr.files?.length} ${t("send.files") || "files"}`}
+                    </p>
+                    <p className="text-xs text-gray-400">
+                      {t("send.to") || "To"}: {tr.targetDevice?.alias || "Unknown"}
+                      {tr.status === "waiting_accept" && ` · ${t("receive.waitingAccept") || "Waiting..."}`}
+                    </p>
+                  </div>
+                </div>
+                {tr.status !== "waiting_accept" && tr.status !== "preparing" && (
+                  <>
+                    <div className="w-full bg-gray-100 rounded-full h-1.5">
+                      <div
+                        className="bg-primary-500 h-1.5 rounded-full transition-all duration-300"
+                        style={{ width: `${progress}%` }}
+                      ></div>
+                    </div>
+                    <div className="flex items-center justify-between mt-1">
+                      <span className="text-xs text-gray-400">{progress}% · {formatSize(tr.bytesTransferred)} / {formatSize(tr.totalBytes)}</span>
+                      <span className="text-xs text-primary-500">
+                        {tr.status === "transferring" ? (t("send.sending") || "Sending...") : tr.status}
+                        {tr.speed ? ` · ${formatSpeed(tr.speed)}` : ""}
+                      </span>
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })}
+          {completedOutgoing.slice(-3).map((tr) => (
+            <div key={tr.id} className="bg-white rounded-xl border border-gray-100 p-3 opacity-60">
+              <div className="flex items-center gap-2">
+                {tr.status === "completed" ? (
+                  <Check size={16} className="text-green-500" />
+                ) : (
+                  <AlertCircle size={16} className="text-red-400" />
+                )}
+                <p className="text-xs text-gray-500 truncate">
+                  {tr.files?.[0]?.name || "Transfer"} — {tr.status === "completed" ? (t("receive.completed") || "Completed") : (t("receive.error") || "Error")}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div
         className="bg-white rounded-xl border-2 border-dashed border-gray-200 p-8 mb-6 text-center hover:border-primary-300 transition-colors cursor-pointer"
@@ -399,20 +460,14 @@ function SendTab({ devices, onSend, myDevice }) {
         onClick={handleSend}
         disabled={!selectedDevice || fileObjects.length === 0 || sending}
         className={`w-full py-3 rounded-xl font-medium text-white transition-all ${
-          sent
-            ? "bg-green-500"
-            : !selectedDevice || fileObjects.length === 0
-            ? "bg-gray-200 text-gray-400 cursor-not-allowed"
-            : sending
-            ? "bg-primary-400 cursor-wait"
-            : "bg-primary-500 hover:bg-primary-600"
+          !selectedDevice || fileObjects.length === 0
+          ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+          : sending
+          ? "bg-primary-400 cursor-wait"
+          : "bg-primary-500 hover:bg-primary-600"
         }`}
       >
-        {sent ? (
-          <span className="flex items-center justify-center gap-2">
-            <Check size={18} /> {t("send.sent")}
-          </span>
-        ) : sending ? (
+        {sending ? (
           <span className="flex items-center justify-center gap-2">
             <RefreshCw size={18} className="animate-spin" /> {t("send.sending")}
           </span>
@@ -781,7 +836,7 @@ export default function App() {
           <ReceiveTab transfers={transfers} onAccept={acceptTransfer} onReject={rejectTransfer} />
         )}
         {activeTab === "send" && (
-          <SendTab devices={devices} onSend={sendFiles} myDevice={null} />
+          <SendTab devices={devices} onSend={sendFiles} myDevice={null} transfers={transfers} />
         )}
         {activeTab === "devices" && (
           <DevicesTab devices={devices} scanning={scanning} onScan={handleScan} connected={connected} />

@@ -83,6 +83,7 @@ export function useQuickShare() {
           {
             id: msg.session_id || crypto.randomUUID(),
             sessionId: msg.session_id,
+            direction: "incoming",
             from: msg.from,
             files: msg.files,
             status: "pending",
@@ -95,12 +96,11 @@ export function useQuickShare() {
       case "transfer_response": {
         const { session_id, accepted } = msg;
 
-        // This is for the LOCAL receiver's UI update
-        // When auto_accept is on, the server sends this to update the receiver's UI
+        // This is for the LOCAL receiver's UI update (incoming transfers only)
         if (accepted) {
           setTransfers((prev) =>
             prev.map((t) =>
-              t.sessionId === session_id
+              t.sessionId === session_id && t.direction === "incoming"
                 ? { ...t, status: t.status === "pending" ? "receiving" : t.status }
                 : t
             )
@@ -108,7 +108,7 @@ export function useQuickShare() {
         } else {
           setTransfers((prev) =>
             prev.map((t) =>
-              t.sessionId === session_id
+              t.sessionId === session_id && t.direction === "incoming"
                 ? { ...t, status: "rejected" }
                 : t
             )
@@ -117,11 +117,11 @@ export function useQuickShare() {
         break;
       }
       case "progress": {
-        // Real-time progress update from server
+        // Real-time progress update from server (only for incoming transfers)
         const p = msg.progress;
         setTransfers((prev) =>
           prev.map((t) =>
-            t.sessionId === p.session_id
+            t.sessionId === p.session_id && t.direction === "incoming"
               ? {
                   ...t,
                   bytesTransferred: p.bytes_sent,
@@ -136,7 +136,7 @@ export function useQuickShare() {
       case "transfer_complete": {
         setTransfers((prev) =>
           prev.map((t) =>
-            t.sessionId === msg.session_id
+            t.sessionId === msg.session_id && t.direction === "incoming"
               ? { ...t, status: "completed", bytesTransferred: t.totalBytes }
               : t
           )
@@ -329,6 +329,7 @@ export function useQuickShare() {
       {
         id: transferId,
         sessionId: null,
+        direction: "outgoing",
         from: myDevice,
         files: Array.from(files).map((f) => ({
           id: crypto.randomUUID(),
