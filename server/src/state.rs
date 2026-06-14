@@ -24,13 +24,61 @@ impl Default for PersistentSettings {
             .to_string_lossy()
             .to_string();
 
+        // Detect system locale for initial alias generation
+        let locale = detect_system_locale();
+
         Self {
-            alias: quickshare_core::alias::generate_random_alias("en"),
+            alias: quickshare_core::alias::generate_random_alias(&locale),
             download_dir,
             auto_accept: false,
             fingerprint,
         }
     }
+}
+
+/// Detect the system locale to decide whether to generate a Chinese or English alias.
+/// Returns "zh" for Chinese systems, "en" for everything else.
+fn detect_system_locale() -> String {
+    // Check LANG, LC_ALL, LC_MESSAGES environment variables (Unix)
+    for var in &["LC_ALL", "LC_MESSAGES", "LANG"] {
+        if let Ok(val) = std::env::var(var) {
+            if val.to_lowercase().starts_with("zh") {
+                return "zh".to_string();
+            }
+        }
+    }
+
+    // On macOS, check AppleLocale defaults
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(output) = std::process::Command::new("defaults")
+            .arg("read")
+            .arg("-g")
+            .arg("AppleLocale")
+            .output()
+        {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            if stdout.to_lowercase().starts_with("zh") {
+                return "zh".to_string();
+            }
+        }
+    }
+
+    // On Windows, check system UI language
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(output) = std::process::Command::new("cmd")
+            .args(["/C", "echo %LANG%"])
+            .output()
+        {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            if stdout.to_lowercase().contains("zh") || stdout.to_lowercase().contains("chs") || stdout.to_lowercase().contains("chi") {
+                return "zh".to_string();
+            }
+        }
+    }
+
+    "en".to_string()
 }
 
 fn config_path() -> std::path::PathBuf {
@@ -163,7 +211,30 @@ impl AppState {
         *self.alias.lock().await = new_alias.clone();
         let mut device = self.device_info.lock().await;
         device.alias = new_alias.clone();
+        drop(device);
         self.persist_settings().await;
+
+        // Re-announce via multicast so other devices see the updated alias
+        self.announce_update(&new_alias);
+
+        // Notify local WebSocket clients about the device info change
+        let updated_device = self.get_device_info().await;
+        let clients = self.ws_clients.lock().await;
+        for (_, tx) in clients.iter() {
+            let _ = tx.send(WsMessage::Update { device: updated_device.clone() });
+        }
+    }
+
+    /// Send a multicast announcement to notify other devices of our updated info
+    fn announce_update(&self, new_alias: &str) {
+        let guard = self.discovery.lock().unwrap();
+        if let Some(ref disc) = *guard {
+            // Update the alias in the discovery service so announcements use the new name
+            disc.update_alias(new_alias.to_string());
+            if let Err(e) = disc.send_announcement() {
+                warn!("Failed to re-announce after alias update: {}", e);
+            }
+        }
     }
 
     /// Persist current settings to disk

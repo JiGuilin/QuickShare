@@ -50,12 +50,19 @@ pub async fn run_server(port: u16, alias: String) -> Result<()> {
                     Some(quickshare_core::discovery::DiscoveryEvent::DeviceFound(device)) => {
                         info!("Discovery: Device found: {} ({})", device.alias, device.ip);
                         let id = device.id.clone();
+                        let is_new = !state_clone.peers.lock().await.contains_key(&id);
                         state_clone.peers.lock().await.insert(id.clone(), device.clone());
 
-                        // Notify WebSocket clients
+                        // Notify WebSocket clients - use Update for existing devices, Join for new
                         let clients = state_clone.ws_clients.lock().await;
-                        for (_, tx) in clients.iter() {
-                            let _ = tx.send(WsMessage::Join { device: device.clone() });
+                        if is_new {
+                            for (_, tx) in clients.iter() {
+                                let _ = tx.send(WsMessage::Join { device: device.clone() });
+                            }
+                        } else {
+                            for (_, tx) in clients.iter() {
+                                let _ = tx.send(WsMessage::Update { device: device.clone() });
+                            }
                         }
                     }
                     Some(quickshare_core::discovery::DiscoveryEvent::DeviceLost(id)) => {

@@ -48,7 +48,7 @@ impl MulticastAnnouncement {
 
 /// UDP multicast discovery service (LocalSend-compatible)
 pub struct MulticastDiscovery {
-    alias: String,
+    alias: std::sync::Mutex<String>,
     port: u16,
     fingerprint: String,
     multicast_addr: Ipv4Addr,
@@ -58,7 +58,7 @@ pub struct MulticastDiscovery {
 impl MulticastDiscovery {
     pub fn new(alias: String, port: u16, fingerprint: String) -> Self {
         Self {
-            alias,
+            alias: std::sync::Mutex::new(alias),
             port,
             fingerprint,
             multicast_addr: MULTICAST_GROUP.parse().unwrap_or(Ipv4Addr::new(224, 0, 0, 167)),
@@ -66,11 +66,19 @@ impl MulticastDiscovery {
         }
     }
 
+    /// Update the alias used in announcements
+    pub fn update_alias(&self, new_alias: String) {
+        if let Ok(mut alias) = self.alias.lock() {
+            *alias = new_alias;
+        }
+    }
+
     /// Send an announcement to the multicast group
     /// This triggers other devices to respond with their info
     pub fn send_announcement(&self) -> Result<()> {
+        let alias = self.alias.lock().map(|a| a.clone()).unwrap_or_default();
         let announcement = MulticastAnnouncement {
-            alias: self.alias.clone(),
+            alias,
             version: crate::PROTOCOL_VERSION.to_string(),
             fingerprint: self.fingerprint.clone(),
             port: self.port,
@@ -114,7 +122,7 @@ impl MulticastDiscovery {
     pub fn listen(&self) -> Result<mpsc::UnboundedReceiver<DiscoveryEvent>> {
         let (tx, rx) = mpsc::unbounded_channel();
         let my_fingerprint = self.fingerprint.clone();
-        let my_alias = self.alias.clone();
+        let my_alias = self.alias.lock().map(|a| a.clone()).unwrap_or_default();
         let multicast_addr = self.multicast_addr;
         let multicast_port = self.multicast_port;
         let my_port = self.port;
@@ -446,6 +454,11 @@ impl DiscoveryService {
         let mdns = MdnsDiscovery::new(alias, port, fingerprint).ok();
 
         Ok(Self { multicast, mdns })
+    }
+
+    /// Update the alias used in discovery announcements
+    pub fn update_alias(&self, new_alias: String) {
+        self.multicast.update_alias(new_alias);
     }
 
     /// Register this device on the network

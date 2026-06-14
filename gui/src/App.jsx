@@ -628,6 +628,8 @@ function SettingsTab({ settings, onUpdateSettings }) {
       const data = await resp.json();
       if (data.alias) {
         setAlias(data.alias);
+        // Save immediately so other devices see the change
+        await onUpdateSettings({ alias: data.alias });
       }
     } catch (err) {
       console.error("Failed to generate random alias:", err);
@@ -642,6 +644,8 @@ function SettingsTab({ settings, onUpdateSettings }) {
       // The device_model field contains the hostname
       if (data.device?.device_model) {
         setAlias(data.device.device_model);
+        // Save immediately so other devices see the change
+        await onUpdateSettings({ alias: data.device.device_model });
         return;
       }
     } catch (err) {

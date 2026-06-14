@@ -72,6 +72,15 @@ export function useQuickShare() {
         });
         break;
       }
+      case "update": {
+        // Device info updated (e.g. alias change) - update the device list
+        setDevices((prev) => {
+          const map = new Map(prev.map((d) => [d.id, d]));
+          map.set(msg.device.id, msg.device);
+          return Array.from(map.values());
+        });
+        break;
+      }
       case "leave": {
         setDevices((prev) => prev.filter((d) => d.id !== msg.device_id));
         break;
