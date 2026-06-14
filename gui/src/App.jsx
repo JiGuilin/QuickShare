@@ -355,6 +355,8 @@ function IncomingTransferCard({ transfer, onAccept, onReject }) {
 
 function CompletedTransferCard({ transfer, downloadDir }) {
   const { t } = useI18n();
+  const [expanded, setExpanded] = useState(false);
+  const multiFile = (transfer.files?.length || 0) > 1;
 
   const openDirectory = async () => {
     if (window.__TAURI__) {
@@ -378,20 +380,25 @@ function CompletedTransferCard({ transfer, downloadDir }) {
     <div className="bg-white rounded-xl border border-gray-100 p-4 opacity-60 hover:opacity-80 transition-opacity">
       <div className="flex items-center gap-3">
         {transfer.status === "completed" ? (
-          <Check size={20} className="text-green-500" />
+          <Check size={20} className="text-green-500 flex-shrink-0" />
         ) : transfer.status === "error" ? (
-          <AlertCircle size={20} className="text-red-400" />
+          <AlertCircle size={20} className="text-red-400 flex-shrink-0" />
         ) : (
-          <X size={20} className="text-red-400" />
+          <X size={20} className="text-red-400 flex-shrink-0" />
         )}
         <div className="flex-1 min-w-0">
           <p className="text-sm text-gray-600 truncate">
             {transfer.files?.[0]?.name || "Transfer"}
           </p>
-          {transfer.files?.length > 1 && (
-            <p className="text-xs text-gray-400">
-              +{transfer.files.length - 1} {t("receive.fileCount")}
-            </p>
+          {multiFile && (
+            <button
+              onClick={() => setExpanded(!expanded)}
+              className="text-xs text-primary-500 hover:text-primary-600 transition-colors"
+            >
+              {expanded
+                ? (t("receive.collapse") || "Collapse")
+                : `+${transfer.files.length - 1} ${t("receive.fileCount")}`}
+            </button>
           )}
         </div>
         {transfer.status === "completed" && downloadDir && (
@@ -412,6 +419,19 @@ function CompletedTransferCard({ transfer, downloadDir }) {
             : (t("receive.rejected") || "Rejected")}
         </span>
       </div>
+      {expanded && multiFile && (
+        <div className="mt-2 ml-8 space-y-1 border-t border-gray-100 pt-2">
+          {transfer.files.slice(1).map((file, i) => (
+            <div key={i} className="flex items-center gap-2 text-xs">
+              <FileIcon fileType={file.file_type || file.name?.split('.').pop()} />
+              <span className="text-gray-600 truncate">{file.name}</span>
+              {file.size && (
+                <span className="text-gray-400 flex-shrink-0">{formatSize(file.size)}</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

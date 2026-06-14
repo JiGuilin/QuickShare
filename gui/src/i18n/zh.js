@@ -30,6 +30,7 @@ const zh = {
     history: "历史记录",
     noHistory: "暂无历史记录",
     fileCount: "个文件",
+    collapse: "收起",
     openDir: "打开目录",
     pathCopied: "路径已复制到剪贴板",
   },

@@ -30,6 +30,7 @@ const en = {
     history: "History",
     noHistory: "No history yet",
     fileCount: "files",
+    collapse: "Collapse",
     openDir: "Open folder",
     pathCopied: "Path copied to clipboard",
   },
