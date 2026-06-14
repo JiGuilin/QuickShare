@@ -24,6 +24,12 @@ const zh = {
     rejected: "已拒绝",
     error: "出错",
     waitingAccept: "等待接收方确认...",
+    thisDevice: "本机设备",
+    autoSave: "自动接收",
+    autoSaveHint: "无需确认自动接收传入的文件",
+    history: "历史记录",
+    noHistory: "暂无历史记录",
+    fileCount: "个文件",
   },
   send: {
     title: "发送文件",

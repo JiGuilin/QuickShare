@@ -24,6 +24,12 @@ const en = {
     rejected: "Rejected",
     error: "Error",
     waitingAccept: "Waiting for receiver to accept...",
+    thisDevice: "This Device",
+    autoSave: "Auto-accept",
+    autoSaveHint: "Accept incoming files automatically without confirmation",
+    history: "History",
+    noHistory: "No history yet",
+    fileCount: "files",
   },
   send: {
     title: "Send Files",

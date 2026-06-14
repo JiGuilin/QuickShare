@@ -128,8 +128,9 @@ function Sidebar({ activeTab, setActiveTab, connected }) {
   );
 }
 
-function ReceiveTab({ transfers, onAccept, onReject }) {
+function ReceiveTab({ transfers, onAccept, onReject, myDevice, settings, onUpdateSettings }) {
   const { t } = useI18n();
+  const [showHistory, setShowHistory] = useState(false);
 
   // Only show INCOMING transfers in the receive tab
   const incomingOnly = transfers.filter((tr) => tr.direction === "incoming");
@@ -140,6 +141,20 @@ function ReceiveTab({ transfers, onAccept, onReject }) {
     (tr) => tr.status === "completed" || tr.status === "rejected" || tr.status === "error"
   );
 
+  const autoAccept = settings.auto_accept;
+
+  const toggleAutoAccept = async () => {
+    const newVal = !autoAccept;
+    await onUpdateSettings({ auto_accept: newVal });
+  };
+
+  // Collect all IPs from myDevice
+  const deviceIPs = myDevice?.ip
+    ? [myDevice.ip]
+    : myDevice?.ips && myDevice.ips.length > 0
+        ? myDevice.ips
+        : [];
+
   return (
     <div className="animate-fade-in">
       <div className="mb-6">
@@ -147,29 +162,88 @@ function ReceiveTab({ transfers, onAccept, onReject }) {
         <p className="text-sm text-gray-500 mt-1">{t("receive.subtitle")}</p>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
+      {/* This Device Card - LocalSend style */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5 mb-4">
         <div className="flex items-center gap-4">
           <div className="relative">
-            <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
-              <Wifi size={24} className="text-green-500" />
+            <div className="w-14 h-14 bg-gradient-to-br from-primary-400 to-primary-600 rounded-2xl flex items-center justify-center shadow-sm">
+              <Monitor size={28} className="text-white" />
             </div>
-            <div className="absolute inset-0 w-12 h-12 bg-green-200 rounded-full animate-pulse-ring"></div>
+            <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-green-400 rounded-full border-2 border-white"></div>
           </div>
-          <div>
-            <p className="font-medium text-gray-800">{t("receive.listening")}</p>
-            <p className="text-sm text-gray-500">{t("receive.port")}: 53318 · {t("receive.visible")}</p>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs text-gray-400 font-medium uppercase tracking-wider">{t("receive.thisDevice")}</p>
+            <p className="text-lg font-semibold text-gray-800 truncate">{myDevice?.alias || "—"}</p>
+            {deviceIPs.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-1">
+                {deviceIPs.map((ip, idx) => (
+                  <span key={idx} className="inline-flex items-center px-2 py-0.5 bg-gray-100 text-gray-500 rounded text-xs font-mono">
+                    {ip}{myDevice?.port ? `:${myDevice.port}` : ""}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-      {incomingTransfers.length === 0 && completedTransfers.length === 0 ? (
-        <div className="text-center py-12">
-          <FolderOpen size={48} className="mx-auto text-gray-300 mb-3" />
-          <p className="text-gray-400">{t("receive.noTransfers")}</p>
-          <p className="text-xs text-gray-300 mt-1">{t("receive.noTransfersHint")}</p>
+      {/* Auto-accept toggle & History button */}
+      <div className="flex items-center gap-3 mb-4">
+        <div className="flex-1 bg-white rounded-xl border border-gray-200 px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Zap size={16} className={autoAccept ? "text-primary-500" : "text-gray-400"} />
+            <div>
+              <p className="text-sm font-medium text-gray-700">{t("receive.autoSave")}</p>
+              <p className="text-xs text-gray-400">{t("receive.autoSaveHint")}</p>
+            </div>
+          </div>
+          <button
+            onClick={toggleAutoAccept}
+            className={`w-10 h-6 rounded-full relative transition-colors flex-shrink-0 ${
+              autoAccept ? "bg-primary-500" : "bg-gray-200"
+            }`
+            }
+          >
+            <div className={`w-4 h-4 bg-white rounded-full absolute top-1 transition-all shadow-sm ${
+              autoAccept ? "right-1" : "left-1"
+            }`}></div>
+          </button>
         </div>
-      ) : (
-        <div className="space-y-3">
+        <button
+          onClick={() => setShowHistory(!showHistory)}
+          className={`bg-white rounded-xl border px-4 py-3 flex items-center gap-2 text-sm font-medium transition-all ${
+            showHistory
+              ? "border-primary-300 bg-primary-50 text-primary-600"
+              : "border-gray-200 text-gray-600 hover:border-gray-300"
+          }`}
+        >
+          <Clock size={16} />
+          {t("receive.history")}
+          {completedTransfers.length > 0 && (
+            <span className={`px-1.5 py-0.5 rounded-full text-xs font-bold ${
+              showHistory ? "bg-primary-200 text-primary-700" : "bg-gray-200 text-gray-500"
+            }`}>{completedTransfers.length}</span>
+          )}
+        </button>
+      </div>
+
+      {/* Listening status */}
+      <div className="bg-green-50 rounded-xl border border-green-100 p-4 mb-4 flex items-center gap-3">
+        <div className="relative">
+          <div className="w-8 h-8 bg-green-200 rounded-full flex items-center justify-center">
+            <Wifi size={16} className="text-green-600" />
+          </div>
+          <div className="absolute inset-0 w-8 h-8 bg-green-300 rounded-full animate-pulse-ring"></div>
+        </div>
+        <div>
+          <p className="text-sm font-medium text-green-700">{t("receive.listening")}</p>
+          <p className="text-xs text-green-500">{t("receive.port")}: 53318 · {t("receive.visible")}</p>
+        </div>
+      </div>
+
+      {/* Active incoming transfers */}
+      {incomingTransfers.length > 0 && (
+        <div className="space-y-3 mb-4">
           {incomingTransfers.map((tr) => (
             <IncomingTransferCard
               key={tr.id}
@@ -178,9 +252,36 @@ function ReceiveTab({ transfers, onAccept, onReject }) {
               onReject={onReject}
             />
           ))}
-          {completedTransfers.map((tr) => (
-            <CompletedTransferCard key={tr.id} transfer={tr} />
-          ))}
+        </div>
+      )}
+
+      {/* History panel */}
+      {showHistory && (
+        <div className="animate-fade-in">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-gray-600">{t("receive.history")}</h3>
+          </div>
+          {completedTransfers.length === 0 ? (
+            <div className="bg-white rounded-xl border border-gray-100 p-6 text-center">
+              <Clock size={32} className="mx-auto text-gray-200 mb-2" />
+              <p className="text-sm text-gray-400">{t("receive.noHistory")}</p>
+            </div>
+          ) : (
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {completedTransfers.map((tr) => (
+                <CompletedTransferCard key={tr.id} transfer={tr} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Empty state when no active transfers and history is not shown */}
+      {incomingTransfers.length === 0 && !showHistory && (
+        <div className="text-center py-12">
+          <FolderOpen size={48} className="mx-auto text-gray-300 mb-3" />
+          <p className="text-gray-400">{t("receive.noTransfers")}</p>
+          <p className="text-xs text-gray-300 mt-1">{t("receive.noTransfersHint")}</p>
         </div>
       )}
     </div>
@@ -928,7 +1029,7 @@ export default function App() {
       <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} connected={connected} />
       <main className="flex-1 p-6 overflow-y-auto">
         {activeTab === "receive" && (
-          <ReceiveTab transfers={transfers} onAccept={acceptTransfer} onReject={rejectTransfer} />
+          <ReceiveTab transfers={transfers} onAccept={acceptTransfer} onReject={rejectTransfer} myDevice={myDevice} settings={settings} onUpdateSettings={updateSettings} />
         )}
         {activeTab === "send" && (
           <SendTab devices={otherDevices} onSend={sendFiles} myDevice={myDevice} transfers={transfers} />
