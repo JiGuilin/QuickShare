@@ -820,7 +820,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState("receive");
   const [scanning, setScanning] = useState(false);
   const {
-    devices, transfers, connected, settings,
+    devices, transfers, connected, settings, myDevice,
     sendFiles, acceptTransfer, rejectTransfer,
     scan, updateSettings,
   } = useQuickShare();
@@ -845,7 +845,7 @@ export default function App() {
           <ReceiveTab transfers={transfers} onAccept={acceptTransfer} onReject={rejectTransfer} />
         )}
         {activeTab === "send" && (
-          <SendTab devices={otherDevices} onSend={sendFiles} myDevice={null} transfers={transfers} />
+          <SendTab devices={otherDevices} onSend={sendFiles} myDevice={myDevice} transfers={transfers} />
         )}
         {activeTab === "devices" && (
           <DevicesTab devices={otherDevices} scanning={scanning} onScan={handleScan} connected={connected} />
