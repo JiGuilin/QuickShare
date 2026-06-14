@@ -35,6 +35,7 @@ const en = {
     title: "Send Files",
     subtitle: "Select files and a target device to send",
     dragDrop: "Drag & drop files here, or click to select",
+    dragDropHint: "Drag more files to add, or click to reselect",
     selectTarget: "Select Target Device",
     noDevices: "No devices found on the network",
     scanAgain: "Scan again",
