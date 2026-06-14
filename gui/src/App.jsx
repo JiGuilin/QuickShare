@@ -388,6 +388,7 @@ function SendTab({ devices, onSend, myDevice, transfers }) {
   const [selectedDevice, setSelectedDevice] = useState(null);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef(null);
+  const unlistenRef = useRef(null);
 
   // Get outgoing transfers for this tab
   const outgoingTransfers = transfers.filter((tr) => tr.direction === "outgoing");
@@ -403,7 +404,8 @@ function SendTab({ devices, onSend, myDevice, transfers }) {
   useEffect(() => {
     if (!window.__TAURI__) return;
 
-    const unlistenFns = [];
+    let cancelled = false;
+    let lastDropTime = 0;
 
     const setup = async () => {
       try {
@@ -411,6 +413,10 @@ function SendTab({ devices, onSend, myDevice, transfers }) {
           import("@tauri-apps/api/event"),
           import("@tauri-apps/plugin-fs"),
         ]);
+
+        // If the effect was cleaned up while we were awaiting, bail out
+        if (cancelled) return;
+
         const listen = eventMod.listen;
         const readFile = fsMod.readFile;
 
@@ -427,14 +433,30 @@ function SendTab({ devices, onSend, myDevice, transfers }) {
         };
 
         const handleDropped = async (paths) => {
+          if (cancelled) return;
           const files = (await Promise.all(paths.map(readPath))).filter(Boolean);
+          if (cancelled) return;
           if (files.length > 0) {
-            setFileObjects((prev) => [...prev, ...files]);
-            setSelectedFiles((prev) => [...prev, ...files.map((f) => f.name)]);
+            setFileObjects((prev) => {
+              const existingNames = new Set(prev.map((f) => f.name));
+              const newFiles = files.filter((f) => !existingNames.has(f.name));
+              return [...prev, ...newFiles];
+            });
+            setSelectedFiles((prev) => {
+              const existingNames = new Set(prev);
+              const newNames = files.map((f) => f.name).filter((n) => !existingNames.has(n));
+              return [...prev, ...newNames];
+            });
           }
         };
 
         const unDrop = await listen("tauri://drag-drop", (event) => {
+          // Deduplicate: ignore if same drop fires within 300ms
+          const now = Date.now();
+          if (now - lastDropTime < 300) return;
+          lastDropTime = now;
+
+          if (cancelled) return;
           setDragOver(false);
           const paths = event.payload?.paths || [];
           if (paths.length > 0) {
@@ -443,14 +465,24 @@ function SendTab({ devices, onSend, myDevice, transfers }) {
         });
 
         const unEnter = await listen("tauri://drag-enter", () => {
+          if (cancelled) return;
           setDragOver(true);
         });
 
         const unLeave = await listen("tauri://drag-leave", () => {
+          if (cancelled) return;
           setDragOver(false);
         });
 
-        unlistenFns.push(unDrop, unEnter, unLeave);
+        // Store unlisten functions so cleanup can call them
+        if (!cancelled) {
+          unlistenRef.current = [unDrop, unEnter, unLeave];
+        } else {
+          // Already cancelled, clean up immediately
+          unDrop();
+          unEnter();
+          unLeave();
+        }
       } catch (e) {
         console.error("[DragDrop] setup() failed:", e);
       }
@@ -459,7 +491,12 @@ function SendTab({ devices, onSend, myDevice, transfers }) {
     setup();
 
     return () => {
-      unlistenFns.forEach((fn) => fn());
+      cancelled = true;
+      // Unlisten all registered event handlers
+      if (unlistenRef.current) {
+        unlistenRef.current.forEach((fn) => fn());
+        unlistenRef.current = null;
+      }
     };
   }, []);
 
