@@ -67,16 +67,26 @@ fn detect_system_locale() -> String {
         }
     }
 
-    // On Windows, check system UI language
+    // On Windows, check system UI language via PowerShell
     #[cfg(target_os = "windows")]
     {
-        if let Ok(output) = std::process::Command::new("cmd")
-            .args(["/C", "echo %LANG%"])
+        // Use PowerShell to get the system UI language (e.g. "zh-CN", "en-US")
+        if let Ok(output) = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-Command", "[System.Globalization.CultureInfo]::CurrentUICulture.Name"])
             .output()
         {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            if stdout.to_lowercase().contains("zh") || stdout.to_lowercase().contains("chs") || stdout.to_lowercase().contains("chi") {
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_lowercase();
+            if stdout.starts_with("zh") {
                 return "zh".to_string();
+            }
+        }
+
+        // Fallback: check environment variables that Windows may set
+        for var in &["LANG", "LC_ALL", "LC_MESSAGES"] {
+            if let Ok(val) = std::env::var(var) {
+                if val.to_lowercase().starts_with("zh") {
+                    return "zh".to_string();
+                }
             }
         }
     }
@@ -252,26 +262,26 @@ impl AppState {
     pub async fn persist_settings(&self) {
         // Determine locale: use the stored one, or detect from system
         let locale = {
-            let sessions_dir = dirs::config_dir()
+            let config_path = dirs::config_dir()
                 .unwrap_or_else(|| std::path::PathBuf::from("."))
                 .join("QuickShare")
                 .join("settings.json");
             // Try to read locale from existing config
-            if let Ok(content) = std::fs::read_to_string(&sessions_dir) {
+            if let Ok(content) = std::fs::read_to_string(&config_path) {
                 serde_json::from_str::<serde_json::Value>(&content)
                     .ok()
                     .and_then(|v| v.get("locale").and_then(|l| l.as_str()).map(|s| s.to_string()))
             } else {
                 None
             }
-        };
+        }.unwrap_or_else(|| detect_system_locale());
 
         let settings = PersistentSettings {
             alias: self.alias.lock().await.clone(),
             download_dir: self.receive_dir.lock().await.clone(),
             auto_accept: *self.auto_accept.lock().await,
             fingerprint: self.fingerprint.clone(),
-            locale,
+            locale: Some(locale),
         };
         // Save in a blocking task to avoid holding locks across await
         let _ = tokio::task::spawn_blocking(move || {
