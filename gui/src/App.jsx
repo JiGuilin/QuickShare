@@ -302,7 +302,7 @@ function SendTab({ devices, onSend, myDevice, transfers }) {
   useEffect(() => {
     if (!window.__TAURI__) return;
 
-    let unlistenDrop, unlistenEnter, unlistenLeave;
+    const unlistenFns = [];
 
     const setup = async () => {
       // Dynamic import Tauri APIs inside effect to ensure availability
@@ -313,7 +313,7 @@ function SendTab({ devices, onSend, myDevice, transfers }) {
       const listen = eventMod.listen;
       const convertFileSrc = coreMod.convertFileSrc;
 
-      // Helper to read a local file path into a File object
+      // Helper to read a local file path into a File object via asset protocol
       const readPath = async (filePath) => {
         try {
           const assetUrl = convertFileSrc(filePath);
@@ -322,6 +322,8 @@ function SendTab({ devices, onSend, myDevice, transfers }) {
             const blob = await response.blob();
             const name = filePath.split(/[/\\]/).pop();
             return new File([blob], name, { type: blob.type || "application/octet-stream" });
+          } else {
+            console.warn("Asset protocol fetch failed:", response.status, filePath);
           }
         } catch (e) {
           console.warn("Failed to read file via asset protocol:", e);
@@ -337,7 +339,7 @@ function SendTab({ devices, onSend, myDevice, transfers }) {
         }
       };
 
-      unlistenDrop = await listen("tauri://drag-drop", (event) => {
+      const unDrop = await listen("tauri://drag-drop", (event) => {
         setDragOver(false);
         const paths = event.payload?.paths || [];
         if (paths.length > 0) {
@@ -345,21 +347,21 @@ function SendTab({ devices, onSend, myDevice, transfers }) {
         }
       });
 
-      unlistenEnter = await listen("tauri://drag-enter", () => {
+      const unEnter = await listen("tauri://drag-enter", () => {
         setDragOver(true);
       });
 
-      unlistenLeave = await listen("tauri://drag-leave", () => {
+      const unLeave = await listen("tauri://drag-leave", () => {
         setDragOver(false);
       });
+
+      unlistenFns.push(unDrop, unEnter, unLeave);
     };
 
     setup();
 
     return () => {
-      if (unlistenDrop) unlistenDrop();
-      if (unlistenEnter) unlistenEnter();
-      if (unlistenLeave) unlistenLeave();
+      unlistenFns.forEach((fn) => fn());
     };
   }, []);
 
