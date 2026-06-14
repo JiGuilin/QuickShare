@@ -23,6 +23,7 @@ export function useQuickShare() {
     if (wsRef.current && wsRef.current.readyState <= 1) return;
 
     const ws = new WebSocket(WS_URL);
+    wsRef.current = ws;
 
     ws.onopen = () => {
       setConnected(true);
@@ -30,12 +31,17 @@ export function useQuickShare() {
 
     ws.onclose = () => {
       setConnected(false);
-      wsRef.current = null;
+      // Only clear ref if this is still the current ws
+      if (wsRef.current === ws) {
+        wsRef.current = null;
+      }
       reconnectTimer.current = setTimeout(() => connect(), 2000);
     };
 
-    ws.onerror = () => {
-      ws.close();
+    ws.onerror = (e) => {
+      console.warn("WebSocket error:", e);
+      // Don't call ws.close() here - onclose will fire automatically after onerror
+      // and we don't want to trigger a double close / race condition
     };
 
     ws.onmessage = (event) => {
@@ -46,8 +52,6 @@ export function useQuickShare() {
         console.error("WS parse error:", e);
       }
     };
-
-    wsRef.current = ws;
   }, []);
 
   // ── message handler ───────────────────────────────────
@@ -269,10 +273,12 @@ export function useQuickShare() {
 
   // ── initial connection ─────────────────────────────────
   useEffect(() => {
+    let cancelled = false;
+
     fetch(`${API_BASE}/api/devices`)
       .then((r) => r.json())
       .then((list) => {
-        if (Array.isArray(list) && list.length > 0) {
+        if (!cancelled && Array.isArray(list) && list.length > 0) {
           setDevices(list);
         }
       })
@@ -280,13 +286,20 @@ export function useQuickShare() {
 
     fetch(`${API_BASE}/api/settings`)
       .then((r) => r.json())
-      .then((s) => setSettings(s))
+      .then((s) => {
+        if (!cancelled) setSettings(s);
+      })
       .catch(() => {});
 
     connect();
+
     return () => {
+      cancelled = true;
       clearTimeout(reconnectTimer.current);
-      if (wsRef.current) wsRef.current.close();
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
     };
   }, [connect]);
 
