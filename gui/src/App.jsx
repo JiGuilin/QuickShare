@@ -30,6 +30,7 @@ import { useQuickShare } from "./hooks/useWebSocket";
 // Tauri plugins - imported statically, but only used when window.__TAURI__ is available
 import * as tauriDialog from "@tauri-apps/plugin-dialog";
 import * as tauriAutostart from "@tauri-apps/plugin-autostart";
+import * as tauriShell from "@tauri-apps/plugin-shell";
 
 const API_BASE = "http://localhost:53318";
 
@@ -269,7 +270,7 @@ function ReceiveTab({ transfers, onAccept, onReject, myDevice, settings, onUpdat
           ) : (
             <div className="space-y-2 max-h-64 overflow-y-auto">
               {completedTransfers.map((tr) => (
-                <CompletedTransferCard key={tr.id} transfer={tr} />
+                <CompletedTransferCard key={tr.id} transfer={tr} downloadDir={settings.download_dir} />
               ))}
             </div>
           )}
@@ -352,10 +353,29 @@ function IncomingTransferCard({ transfer, onAccept, onReject }) {
   );
 }
 
-function CompletedTransferCard({ transfer }) {
+function CompletedTransferCard({ transfer, downloadDir }) {
   const { t } = useI18n();
+
+  const openDirectory = async () => {
+    if (window.__TAURI__) {
+      try {
+        await tauriShell.open(downloadDir);
+      } catch (e) {
+        console.error("Failed to open directory:", e);
+      }
+    } else {
+      // Fallback for browser: copy path to clipboard
+      try {
+        await navigator.clipboard.writeText(downloadDir);
+        alert(t("receive.pathCopied") || `Path copied: ${downloadDir}`);
+      } catch {
+        alert(downloadDir);
+      }
+    }
+  };
+
   return (
-    <div className="bg-white rounded-xl border border-gray-100 p-4 opacity-60">
+    <div className="bg-white rounded-xl border border-gray-100 p-4 opacity-60 hover:opacity-80 transition-opacity">
       <div className="flex items-center gap-3">
         {transfer.status === "completed" ? (
           <Check size={20} className="text-green-500" />
@@ -368,8 +388,23 @@ function CompletedTransferCard({ transfer }) {
           <p className="text-sm text-gray-600 truncate">
             {transfer.files?.[0]?.name || "Transfer"}
           </p>
+          {transfer.files?.length > 1 && (
+            <p className="text-xs text-gray-400">
+              +{transfer.files.length - 1} {t("receive.fileCount")}
+            </p>
+          )}
         </div>
-        <span className={`text-xs ${
+        {transfer.status === "completed" && downloadDir && (
+          <button
+            onClick={openDirectory}
+            className="flex items-center gap-1 px-2 py-1 text-xs text-primary-500 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors flex-shrink-0"
+            title={downloadDir}
+          >
+            <FolderOpen size={14} />
+            {t("receive.openDir")}
+          </button>
+        )}
+        <span className={`text-xs flex-shrink-0 ${
           transfer.status === "completed" ? "text-green-500" : transfer.status === "error" ? "text-red-400" : "text-red-400"
         }`}>
           {transfer.status === "completed" ? (t("receive.completed") || "Completed")

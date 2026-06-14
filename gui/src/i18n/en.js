@@ -30,6 +30,8 @@ const en = {
     history: "History",
     noHistory: "No history yet",
     fileCount: "files",
+    openDir: "Open folder",
+    pathCopied: "Path copied to clipboard",
   },
   send: {
     title: "Send Files",

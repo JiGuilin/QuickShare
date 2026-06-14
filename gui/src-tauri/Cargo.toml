@@ -19,3 +19,4 @@ tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-autostart = "2.5"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
+tauri-plugin-shell = "2"

@@ -19,6 +19,7 @@
       "allow": [{ "path": "**" }]
     },
     "fs:allow-exists",
-    "fs:allow-stat"
+    "fs:allow-stat",
+    "shell:allow-open"
   ]
 }
