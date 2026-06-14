@@ -3,6 +3,11 @@
 use quickshare_core::DEFAULT_PORT;
 use quickshare_server::run_server;
 
+#[tauri::command]
+fn open_dir(path: String) -> Result<(), String> {
+    opener::open(&path).map_err(|e| format!("Failed to open directory: {}", e))
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_autostart::init(
@@ -12,6 +17,7 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
+        .invoke_handler(tauri::generate_handler![open_dir])
         .setup(|_app| {
             let port = DEFAULT_PORT;
 

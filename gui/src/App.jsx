@@ -361,9 +361,17 @@ function CompletedTransferCard({ transfer, downloadDir }) {
   const openDirectory = async () => {
     if (window.__TAURI__) {
       try {
-        await tauriShell.open(downloadDir);
+        // Use Rust backend to open directory — more reliable on Windows with CJK paths
+        const { invoke } = await import("@tauri-apps/api/core");
+        await invoke("open_dir", { path: downloadDir });
       } catch (e) {
         console.error("Failed to open directory:", e);
+        // Fallback to shell.open
+        try {
+          await tauriShell.open(downloadDir);
+        } catch (e2) {
+          console.error("shell.open fallback also failed:", e2);
+        }
       }
     } else {
       // Fallback for browser: copy path to clipboard
