@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/nicegui/tauri-v2/main/tooling/cli/schema.json",
   "productName": "QuickShare",
   "version": "0.2.0",
-  "identifier": "com.quickshare.app",
+  "identifier": "com.quickshare.desktop",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5174",
