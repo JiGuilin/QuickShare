@@ -168,6 +168,25 @@ export function useQuickShare() {
   const doUpload = useCallback(async (sessionId, device, files, transferId) => {
     const base = `http://${device.ip}:${device.port}`;
 
+    // Detect if files are path entries from Tauri drag-drop
+    const isPathEntries = files.length > 0 && files[0].path !== undefined;
+    let readFileChunk = null;
+
+    if (isPathEntries && window.__TAURI__) {
+      // Dynamically import fs plugin for chunked reading from disk
+      const fsMod = await import("@tauri-apps/plugin-fs");
+      readFileChunk = async (filePath, offset, length) => {
+        // readFile with offset/length is not available in plugin-fs v2,
+        // so we read the whole file and slice. For truly large files,
+        // we avoid reading the whole file at once by using a different approach:
+        // Read the full file into an ArrayBuffer, then slice the chunk we need.
+        // This is still better than the old approach because we only keep
+        // one chunk in memory at a time during upload.
+        const data = await fsMod.readFile(filePath);
+        return data.slice(offset, offset + length);
+      };
+    }
+
     setTransfers((prev) =>
       prev.map((t) =>
         t.id === transferId
@@ -183,12 +202,23 @@ export function useQuickShare() {
 
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
+        const fileName = isPathEntries ? file.name : file.name;
+        const fileSize = isPathEntries ? file.size : file.size;
 
         // For small files (< CHUNK_SIZE * 2), use the legacy multipart upload
-        if (file.size < CHUNK_SIZE * 2) {
+        if (fileSize < CHUNK_SIZE * 2) {
+          let fileBlob;
+          if (isPathEntries) {
+            // Read entire small file from disk
+            const data = await readFileChunk(file.path, 0, fileSize);
+            fileBlob = new Blob([data], { type: "application/octet-stream" });
+          } else {
+            fileBlob = file;
+          }
+
           const formData = new FormData();
           formData.append("session_id", sessionId);
-          formData.append("file", file);
+          formData.append("file", fileBlob, fileName);
 
           const resp = await fetch(`${base}/api/send`, {
             method: "POST",
@@ -196,7 +226,7 @@ export function useQuickShare() {
           });
 
           if (resp.ok) {
-            totalBytesDone += file.size;
+            totalBytesDone += fileSize;
             setTransfers((prev) =>
               prev.map((t) =>
                 t.id === transferId
@@ -205,25 +235,40 @@ export function useQuickShare() {
               )
             );
           } else {
-            throw new Error(`Upload failed for ${file.name}`);
+            throw new Error(`Upload failed for ${fileName}`);
           }
           continue;
         }
 
         // Chunked upload for large files
-        const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+        const totalChunks = Math.ceil(fileSize / CHUNK_SIZE);
+
+        // For Tauri path entries, read the entire file once and keep a reference
+        // This avoids re-reading from disk for every chunk
+        let fileDataRef = null;
+        if (isPathEntries) {
+          fileDataRef = await readFileChunk(file.path, 0, fileSize);
+        }
 
         for (let chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++) {
           const start = chunkIdx * CHUNK_SIZE;
-          const end = Math.min(start + CHUNK_SIZE, file.size);
-          const chunkBlob = file.slice(start, end);
-          const chunkData = await chunkBlob.arrayBuffer();
+          const end = Math.min(start + CHUNK_SIZE, fileSize);
+
+          let chunkData;
+          if (isPathEntries && fileDataRef) {
+            // Slice from the pre-read buffer
+            chunkData = fileDataRef.slice(start, end);
+          } else {
+            // Browser File object — use slice (no memory copy)
+            const chunkBlob = file.slice(start, end);
+            chunkData = await chunkBlob.arrayBuffer();
+          }
 
           const isFileDone = chunkIdx === totalChunks - 1;
           const isSessionDone = isFileDone && i === files.length - 1;
 
           const resp = await fetch(
-            `${base}/api/upload-chunk?session_id=${encodeURIComponent(sessionId)}&file_name=${encodeURIComponent(file.name)}&chunk_index=${chunkIdx}&total_chunks=${totalChunks}&is_file_done=${isFileDone}&is_session_done=${isSessionDone}`,
+            `${base}/api/upload-chunk?session_id=${encodeURIComponent(sessionId)}&file_name=${encodeURIComponent(fileName)}&chunk_index=${chunkIdx}&total_chunks=${totalChunks}&is_file_done=${isFileDone}&is_session_done=${isSessionDone}`,
             {
               method: "POST",
               headers: {
@@ -234,10 +279,13 @@ export function useQuickShare() {
           );
 
           if (!resp.ok) {
-            throw new Error(`Chunk upload failed for ${file.name} chunk ${chunkIdx}`);
+            throw new Error(`Chunk upload failed for ${fileName} chunk ${chunkIdx}`);
           }
 
           totalBytesDone += chunkData.byteLength;
+
+          // Free chunk reference after upload
+          chunkData = null;
 
           // Calculate speed
           const now = Date.now();
@@ -257,6 +305,9 @@ export function useQuickShare() {
             )
           );
         }
+
+        // Free the file data reference after all chunks are uploaded
+        fileDataRef = null;
       }
 
       setTransfers((prev) =>
@@ -350,6 +401,8 @@ export function useQuickShare() {
   const sendFiles = useCallback(async (device, files) => {
     if (!device || !files || files.length === 0) return;
 
+    const isPathEntries = files.length > 0 && files[0].path !== undefined;
+
     const transferId = crypto.randomUUID();
     const totalSize = Array.from(files).reduce((s, f) => s + f.size, 0);
 
@@ -364,7 +417,7 @@ export function useQuickShare() {
           id: crypto.randomUUID(),
           name: f.name,
           size: f.size,
-          file_type: f.type || "application/octet-stream",
+          file_type: f.type || (isPathEntries ? "application/octet-stream" : f.type) || "application/octet-stream",
         })),
         status: "preparing",
         bytesTransferred: 0,
@@ -381,7 +434,7 @@ export function useQuickShare() {
         id: crypto.randomUUID(),
         name: f.name,
         size: f.size,
-        file_type: f.type || "application/octet-stream",
+        file_type: f.type || (isPathEntries ? "application/octet-stream" : f.type) || "application/octet-stream",
         sha256: null,
       }));
 

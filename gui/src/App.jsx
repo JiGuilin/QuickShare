@@ -440,6 +440,7 @@ function SendTab({ devices, onSend, myDevice, transfers }) {
   const { t } = useI18n();
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [fileObjects, setFileObjects] = useState([]);
+  const [filePathEntries, setFilePathEntries] = useState([]); // Tauri: [{path, name, size}]
   const [selectedDevice, setSelectedDevice] = useState(null);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef(null);
@@ -473,33 +474,33 @@ function SendTab({ devices, onSend, myDevice, transfers }) {
         if (cancelled) return;
 
         const listen = eventMod.listen;
-        const readFile = fsMod.readFile;
+        const stat = fsMod.stat;
 
-        // Read a local file path into a File object using Tauri fs plugin
-        const readPath = async (filePath) => {
+        // Get file metadata (name + size) without reading file content — instant for large files
+        const getFileMeta = async (filePath) => {
           try {
-            const data = await readFile(filePath);
+            const info = await stat(filePath);
             const name = filePath.split(/[/\\]/).pop();
-            return new File([data], name, { type: "application/octet-stream" });
+            return { path: filePath, name, size: info.size };
           } catch (e) {
-            console.warn("[DragDrop] Failed to read file:", filePath, e);
+            console.warn("[DragDrop] Failed to stat file:", filePath, e);
           }
           return null;
         };
 
         const handleDropped = async (paths) => {
           if (cancelled) return;
-          const files = (await Promise.all(paths.map(readPath))).filter(Boolean);
+          const entries = (await Promise.all(paths.map(getFileMeta))).filter(Boolean);
           if (cancelled) return;
-          if (files.length > 0) {
-            setFileObjects((prev) => {
-              const existingNames = new Set(prev.map((f) => f.name));
-              const newFiles = files.filter((f) => !existingNames.has(f.name));
-              return [...prev, ...newFiles];
+          if (entries.length > 0) {
+            setFilePathEntries((prev) => {
+              const existingPaths = new Set(prev.map((e) => e.path));
+              const newEntries = entries.filter((e) => !existingPaths.has(e.path));
+              return [...prev, ...newEntries];
             });
             setSelectedFiles((prev) => {
-              const existingNames = new Set(prev);
-              const newNames = files.map((f) => f.name).filter((n) => !existingNames.has(n));
+              const existing = new Set(prev);
+              const newNames = entries.map((e) => e.name).filter((n) => !existing.has(n));
               return [...prev, ...newNames];
             });
           }
@@ -558,11 +559,13 @@ function SendTab({ devices, onSend, myDevice, transfers }) {
   const handleFileSelect = (e) => {
     const files = Array.from(e.target.files || []);
     setFileObjects(files);
+    setFilePathEntries([]); // Clear path entries when using file picker
     setSelectedFiles(files.map((f) => f.name));
   };
 
   const removeFile = (index) => {
     setFileObjects((prev) => prev.filter((_, i) => i !== index));
+    setFilePathEntries((prev) => prev.filter((_, i) => i !== index));
     setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
@@ -575,6 +578,7 @@ function SendTab({ devices, onSend, myDevice, transfers }) {
     if (!window.__TAURI__) {
       const files = Array.from(e.dataTransfer.files || []);
       setFileObjects(files);
+      setFilePathEntries([]);
       setSelectedFiles(files.map((f) => f.name));
     }
   };
@@ -595,12 +599,27 @@ function SendTab({ devices, onSend, myDevice, transfers }) {
     }
   };
 
+  // Compute file sizes for display: prefer filePathEntries (Tauri drag), fallback to fileObjects
+  const getFileSize = (index) => {
+    if (filePathEntries[index]) return filePathEntries[index].size;
+    if (fileObjects[index]) return fileObjects[index].size;
+    return 0;
+  };
+
+  const hasFiles = selectedFiles.length > 0;
+
   const handleSend = async () => {
-    if (!selectedDevice || fileObjects.length === 0) return;
+    if (!selectedDevice || (!hasFiles)) return;
     try {
-      await onSend(selectedDevice, fileObjects);
+      // In Tauri with path entries, pass paths; otherwise pass File objects
+      if (filePathEntries.length > 0) {
+        await onSend(selectedDevice, filePathEntries);
+      } else {
+        await onSend(selectedDevice, fileObjects);
+      }
       setSelectedFiles([]);
       setFileObjects([]);
+      setFilePathEntries([]);
       setSelectedDevice(null);
     } catch (err) {
       console.error("Send error:", err);
@@ -697,7 +716,7 @@ function SendTab({ devices, onSend, myDevice, transfers }) {
                 <FileIcon fileType={f.split('.').pop()} />
                 <span className="truncate max-w-48">{f}</span>
                 <span className="text-gray-400 flex-shrink-0">
-                  {fileObjects[i] ? formatSize(fileObjects[i].size) : ""}
+                  {formatSize(getFileSize(i))}
                 </span>
                 <button
                   onClick={(e) => { e.stopPropagation(); removeFile(i); }}
@@ -755,9 +774,9 @@ function SendTab({ devices, onSend, myDevice, transfers }) {
 
       <button
         onClick={handleSend}
-        disabled={!selectedDevice || fileObjects.length === 0 || sending}
+        disabled={!selectedDevice || !hasFiles || sending}
         className={`w-full py-3 rounded-xl font-medium text-white transition-all ${
-          !selectedDevice || fileObjects.length === 0
+          !selectedDevice || !hasFiles
           ? "bg-gray-200 text-gray-400 cursor-not-allowed"
           : sending
           ? "bg-primary-400 cursor-wait"
