@@ -8,6 +8,10 @@ dist/
 
 # Tauri
 gui/src-tauri/target/
+gui/src-tauri/gen/
+
+# Build notes
+Build.txt
 
 # OS
 .DS_Store
