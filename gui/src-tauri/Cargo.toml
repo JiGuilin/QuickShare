@@ -21,3 +21,10 @@ tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-shell = "2"
 opener = "0.7"
+dirs = "5"
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"
+
+[target.'cfg(unix)'.dependencies]
+dirs = "5"
