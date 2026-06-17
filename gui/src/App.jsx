@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { useI18n, availableLocales } from "./i18n";
 import { useQuickShare } from "./hooks/useWebSocket";
+import { ContextMenuDemo } from "./components/ContextMenuDemo";
 
 // Tauri plugins - imported statically, but only used when window.__TAURI__ is available
 import * as tauriDialog from "@tauri-apps/plugin-dialog";
@@ -499,7 +500,7 @@ function CompletedSendCard({ transfer }) {
   );
 }
 
-function SendTab({ devices, onSend, myDevice, transfers }) {
+function SendTab({ devices, onSend, myDevice, transfers, onSwitchToThisTab }) {
   const { t } = useI18n();
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [fileObjects, setFileObjects] = useState([]);
@@ -508,6 +509,7 @@ function SendTab({ devices, onSend, myDevice, transfers }) {
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef(null);
   const unlistenRef = useRef(null);
+  const contextFilesQueueRef = useRef([]);
 
   // Get outgoing transfers for this tab
   const outgoingTransfers = transfers.filter((tr) => tr.direction === "outgoing");
@@ -519,6 +521,104 @@ function SendTab({ devices, onSend, myDevice, transfers }) {
   );
   const sending = activeOutgoing.length > 0;
   const [showSendHistory, setShowSendHistory] = useState(false);
+
+  // Helper: add file paths to the send box
+  const addFilePathsToEntries = useCallback(async (filePaths) => {
+    if (!window.__TAURI__ || filePaths.length === 0) return;
+    try {
+      const fsMod = await import("@tauri-apps/plugin-fs");
+      const stat = fsMod.stat;
+
+      const newEntries = [];
+      for (const filePath of filePaths) {
+        try {
+          const info = await stat(filePath);
+          const name = filePath.split(/[/\\]/).pop();
+          newEntries.push({ path: filePath, name, size: info.size });
+        } catch (e) {
+          console.warn("[SendTab] Failed to stat file:", filePath, e);
+        }
+      }
+
+      if (newEntries.length > 0) {
+        setFilePathEntries((prev) => {
+          const existingPaths = new Set(prev.map((e) => e.path));
+          const unique = newEntries.filter((e) => !existingPaths.has(e.path));
+          return [...prev, ...unique];
+        });
+        setSelectedFiles((prev) => {
+          const existing = new Set(prev);
+          const newNames = newEntries.map((e) => e.name).filter((n) => !existing.has(n));
+          return [...prev, ...newNames];
+        });
+      }
+    } catch (e) {
+      console.error("[SendTab] Failed to add files:", e);
+    }
+  }, []);
+
+  // Process queued context menu files (works even when tab was not mounted when event fired)
+  useEffect(() => {
+    const queue = contextFilesQueueRef.current;
+    if (queue.length === 0) return;
+    contextFilesQueueRef.current = [];
+    addFilePathsToEntries(queue);
+  }, [addFilePathsToEntries]);
+
+  // Listen for context menu files event directly (from single-instance IPC)
+  useEffect(() => {
+    if (!window.__TAURI__) return;
+
+    let cancelled = false;
+    const setup = async () => {
+      try {
+        const eventMod = await import("@tauri-apps/api/event");
+        const unlisten = await eventMod.listen("quickshare://context-menu-files", (event) => {
+          if (cancelled) return;
+          const files = event.payload;
+          if (Array.isArray(files) && files.length > 0) {
+            console.log("[SendTab] Received context menu files:", files);
+            // Queue the files for processing (handles case where tab wasn't active)
+            contextFilesQueueRef.current = [...contextFilesQueueRef.current, ...files];
+            addFilePathsToEntries(files);
+            // Notify parent to switch to send tab
+            if (onSwitchToThisTab) onSwitchToThisTab();
+          }
+        });
+
+        return () => {
+          if (!cancelled) unlisten();
+        };
+      } catch (e) {
+        console.error("[SendTab] Failed to setup context menu listener:", e);
+      }
+    };
+
+    setup();
+    return () => { cancelled = true; };
+  }, [addFilePathsToEntries, onSwitchToThisTab]);
+
+  // Check for CLI files on initial mount
+  useEffect(() => {
+    if (!window.__TAURI__) return;
+
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const cliFiles = await invoke("get_cli_files");
+        if (!cancelled && Array.isArray(cliFiles) && cliFiles.length > 0) {
+          console.log("[SendTab] CLI files on mount:", cliFiles);
+          addFilePathsToEntries(cliFiles);
+        }
+      } catch (e) {
+        // Ignore
+      }
+    };
+    check();
+
+    return () => { cancelled = true; };
+  }, [addFilePathsToEntries]);
 
   // Listen for Tauri drag-drop events
   useEffect(() => {
@@ -1217,6 +1317,11 @@ function SettingsTab({ settings, onUpdateSettings }) {
           )}
         </button>
       </div>
+
+      {/* ContextMenu Demo Section */}
+      <div className="mt-8 border-t border-gray-200 pt-6">
+        <ContextMenuDemo />
+      </div>
     </div>
   );
 }
@@ -1244,6 +1349,10 @@ export default function App() {
     setTimeout(() => setScanning(false), 3000);
   }, [scan]);
 
+  const handleSwitchToSendTab = useCallback(() => {
+    setActiveTab("send");
+  }, []);
+
   return (
     <div className="flex h-screen bg-gray-50">
       <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} connected={connected} />
@@ -1251,9 +1360,10 @@ export default function App() {
         {activeTab === "receive" && (
           <ReceiveTab transfers={transfers} onAccept={acceptTransfer} onReject={rejectTransfer} myDevice={myDevice} settings={settings} onUpdateSettings={updateSettings} />
         )}
-        {activeTab === "send" && (
-          <SendTab devices={otherDevices} onSend={sendFiles} myDevice={myDevice} transfers={transfers} />
-        )}
+        {/* SendTab is always mounted so its event listeners work even when hidden */}
+        <div style={{ display: activeTab === "send" ? "block" : "none" }}>
+          <SendTab devices={otherDevices} onSend={sendFiles} myDevice={myDevice} transfers={transfers} onSwitchToThisTab={handleSwitchToSendTab} />
+        </div>
         {activeTab === "devices" && (
           <DevicesTab devices={otherDevices} scanning={scanning} onScan={handleScan} connected={connected} />
         )}
